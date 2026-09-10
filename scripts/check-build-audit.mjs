@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { evaluateBuildAudit } from './build-audit-policy.mjs';
+import { verifyInstalledExtractZipPatch } from './extract-zip-patch.mjs';
 
 const npmCli = process.env.npm_execpath;
 if (!npmCli) throw new Error('Run this policy through npm run audit:build.');
@@ -19,7 +20,9 @@ try {
   throw new Error('npm audit did not return valid JSON.');
 }
 const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
-const result = evaluateBuildAudit(report, lock);
+const result = evaluateBuildAudit(report, lock, {
+  extractZipSource: verifyInstalledExtractZipPatch(),
+});
 console.log(
-  `Build audit passed; ${result.checked.length} high-severity dependency nodes are dev-only and bounded to ${result.allowedAdvisories.join(', ')}.`
+  `Build audit passed; ${result.checked.length} high-severity dependency nodes are dev-only with verified extract-zip backport or bounded to ${result.allowedAdvisories.join(', ')}.`
 );

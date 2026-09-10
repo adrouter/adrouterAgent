@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { verifyInstalledExtractZipPatch } from './extract-zip-patch.mjs';
+
+verifyInstalledExtractZipPatch();
 
 const expected = new Map([
   [
@@ -17,7 +20,8 @@ const expected = new Map([
 const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
 const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
 const securityPins = new Map([
-  ['fast-uri', '3.1.5'],
+  ['fast-uri', '3.1.6'],
+  ['@xmldom/xmldom', '0.9.12'],
   ['tar', '7.5.22'],
   ['tmp', '0.2.7'],
 ]);

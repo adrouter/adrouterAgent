@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyExtractZipPatch } from './extract-zip-patch.mjs';
+
+applyExtractZipPatch();
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const piNestedRoot = resolve(
@@ -68,5 +71,5 @@ for (const [before, after] of [
 writeFileSync(crossZipPath, crossZipSource);
 
 console.log(
-  'Applied three audited dependency overrides and the reviewed cross-zip Node 25 compatibility patch.'
+  'Applied three audited dependency overrides and the reviewed cross-zip compatibility and extract-zip security patches.'
 );
