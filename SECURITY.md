@@ -7,8 +7,9 @@ should manually install the relevant current channel before reporting a problem.
 
 | Version | Supported |
 | --- | --- |
-| 0.1.0-beta.20 (prepared; not yet published) | Pending publication |
-| 0.1.0-beta.19 (`candidate` at preparation) | Yes |
+| 0.1.0-beta.21 (prepared; not yet published) | Pending publication |
+| 0.1.0-beta.20 (`candidate` at preparation) | Yes |
+| 0.1.0-beta.19 | No |
 | 0.1.0-beta.18 | No |
 | 0.1.0-beta.17 | No |
 | 0.1.0-beta.16 (`beta`, `latest`) | Yes |

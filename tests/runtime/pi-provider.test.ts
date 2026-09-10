@@ -42,6 +42,32 @@ const createProvider = (
 };
 
 describe('AdRouter Pi provider', () => {
+  it.each([
+    '',
+    '{"type":"thinking","delta":"Considering the stylesheet"}\n',
+    '{"type":"text","delta":"Partial answer"}\n',
+    '{"type":"tool_call","id":"read-1","name":"read_file","arguments":{"path":"style.css"}}\n',
+  ])('fails closed when the transport ends without completion: %s', async (body) => {
+    const fetchFn = vi.fn(async () => new Response(body));
+    const { provider } = createProvider(fetchFn);
+    const stream = provider.stream(provider.model, {
+      messages: [{ role: 'user', content: 'Change the blog color to yellow', timestamp: 0 }],
+      tools: [],
+    });
+    const events = await collect(stream);
+    expect(events.at(-1)).toMatchObject({
+      type: 'error',
+      error: { stopReason: 'error', errorMessage: expect.stringContaining('completion event') },
+    });
+    expect(events.filter((event) => event.type === 'done')).toHaveLength(0);
+    const result = await stream.result();
+    expect(result.content.some((block) => block.type === 'toolCall')).toBe(false);
+    if (body.includes('Partial answer')) {
+      expect(result.content).toContainEqual({ type: 'text', text: 'Partial answer' });
+    }
+    expect(fetchFn).toHaveBeenCalledOnce();
+  });
+
   it('removes economics fields before a router tool call can reach a desktop tool', () => {
     const argumentsValue = sanitizeToolCallArguments({
       path: 'src/user.ts',

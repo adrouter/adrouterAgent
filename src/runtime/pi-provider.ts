@@ -69,8 +69,17 @@ const initialMessage = (model: Model<Api>): AssistantMessage => ({
   timestamp: Date.now(),
 });
 
-const asError = (model: Model<Api>, error: unknown, aborted = false): AssistantMessage => ({
-  ...initialMessage(model),
+const asError = (
+  model: Model<Api>,
+  error: unknown,
+  aborted = false,
+  partial?: AssistantMessage
+): AssistantMessage => ({
+  ...(partial ? clonePartial(partial) : initialMessage(model)),
+  // Keep already displayed output, but never execute tools from a failed turn.
+  content: partial
+    ? clonePartial(partial).content.filter((block) => block.type !== 'toolCall')
+    : [],
   stopReason: aborted ? 'aborted' : 'error',
   errorMessage: error instanceof Error ? error.message : String(error),
 });
@@ -188,7 +197,7 @@ export const createAdRouterPiProvider = (
           )) {
             consumed = true;
             if (streamOptions?.signal?.aborted) {
-              const aborted = asError(requestedModel, 'Request was cancelled.', true);
+              const aborted = asError(requestedModel, 'Request was cancelled.', true, partial);
               output.push({ type: 'error', reason: 'aborted', error: aborted });
               output.end(aborted);
               return;
@@ -282,7 +291,7 @@ export const createAdRouterPiProvider = (
                 return;
               }
               case 'error': {
-                const failed = asError(requestedModel, event.message);
+                const failed = asError(requestedModel, event.message, false, partial);
                 output.push({ type: 'error', reason: 'error', error: failed });
                 output.end(failed);
                 return;
@@ -290,16 +299,9 @@ export const createAdRouterPiProvider = (
             }
           }
 
-          start();
-          const reason = sawToolCall ? ('toolUse' as const) : ('stop' as const);
-          const completed: AssistantMessage = {
-            ...partial,
-            stopReason: reason,
-            timestamp: Date.now(),
-          };
-          output.push({ type: 'done', reason, message: completed });
-          output.end(completed);
-          return;
+          throw new Error(
+            'AdRouter stream ended before its completion event. Partial output was preserved.'
+          );
         } catch (error) {
           const compactor = options.compactForInputLimit;
           const mayRetry =
@@ -319,7 +321,7 @@ export const createAdRouterPiProvider = (
             }
           }
           const aborted = streamOptions?.signal?.aborted;
-          const message = asError(requestedModel, error, aborted);
+          const message = asError(requestedModel, error, aborted, partial);
           output.push({ type: 'error', reason: aborted ? 'aborted' : 'error', error: message });
           output.end(message);
           return;

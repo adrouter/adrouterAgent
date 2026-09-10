@@ -69,6 +69,11 @@ test.describe('packaged functional agent', () => {
         const send = (event: unknown): void => {
           response.write(`${JSON.stringify(event)}\n`);
         };
+        if (agentTurns === 5) {
+          send({ type: 'text', content: 'Partial response before disconnect.' });
+          response.end();
+          return;
+        }
         if (JSON.stringify(body).includes('stop this run')) {
           send({ type: 'thinking', content: 'Waiting for cancellation.' });
           return;
@@ -240,6 +245,16 @@ test.describe('packaged functional agent', () => {
       await expect(
         page.getByText('The approved edit and verification command completed.')
       ).toHaveCount(0);
+      await page.getByLabel('Task message').fill('Check the interrupted fixture.');
+      await page.getByRole('button', { name: 'Send' }).click();
+      await expect(
+        page.getByText('Partial response before disconnect.', { exact: true })
+      ).toBeVisible();
+      await expect(
+        page.getByText(/stream ended before its completion event/).first()
+      ).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Stop' })).toHaveCount(0);
       await page.getByLabel('Task message').fill('stop this run');
       await page.getByRole('button', { name: 'Send' }).click();
       await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
