@@ -7,6 +7,10 @@ Publish the current desktop implementation and completed chat-theme polish as im
 
 ## Context
 
+Candidate publication completed on 2026-09-10. The immutable release source remains
+f5db057f13b6ccbad83bfd63a2ac7467edc16522. This later documentation receipt does not alter the tag
+or release assets. Physical exact-artifact acceptance and public-channel finalization remain pending.
+
 The user approved implementation on 2026-09-10, including the existing AGENTS.md and
 .gitlab-ci.yml changes unchanged in the release-preparation commit. origin is the original
 adrouter/adrouterAgent; github-backup is adrouter-co/adrouterAgent with no automatic pushes.
@@ -27,7 +31,7 @@ constraints describe that completed work, not this approved publication.
 - Failed CI run 34031119517 belongs to Dependabot PR #30, not this release source; do not merge it.
 - macos-release and npm-publish require HappyCool121 and need an exact beta.20 tag allowance.
 - npm trusted publishing must match adrouter/adrouterAgent, promote-release.yml, npm-publish,
-  and permit direct publishing. Configuration remains unverified.
+  and permit direct publishing. Configuration was verified in authenticated npm settings before dispatch.
 - npm guidance: https://docs.npmjs.com/trusted-publishers/ (CLI >=11.5.1, Node >=22.14).
 
 ## Constraints
@@ -53,17 +57,18 @@ and candidate identifies the intended version. Never weaken environment policies
 
 ### Status
 
-`in_progress`
+`done`
 
 ### Tasks
 
 - [x] Create codex/agent-candidate-beta20; include existing theme, governance, and GitLab CI work.
 - [x] Align package/lockfile, manifest identity, About metadata, bundle 10020, promotion default,
       verification expectations, and release docs. Retain UNBUILT hash placeholders.
-- [ ] Regenerate source parity through its generator. Review and commit preparation together.
+- [x] Regenerate source parity through its generator. Review and commit preparation together.
 - [x] Run local gates and packaged dark/light visual checks at 960px and 1280px.
-- [ ] Push to origin and open a PR; require validation, portability checks, and normal review.
-- [ ] Merge normally, check out exact merged SHA, verify reviewed tree and successful CI.
+- [x] Push to origin and open PR #31; all validation/portability checks passed; the operator
+      squash-merged the PR. GitHub reports no submitted review for this operator merge.
+- [x] Merge normally, check out exact merged SHA, verify reviewed tree and successful CI.
 
 ### Commands
 
@@ -80,8 +85,8 @@ git status --short --branch
 
 ### Acceptance Criteria
 
-- [ ] All local checks and GitHub portability/validation pass; final release checkout is clean.
-- [ ] Exact version/source agree; theme states inspected in both widths and modes.
+- [x] All local checks and GitHub portability/validation pass; final release checkout is clean.
+- [x] Exact version/source agree; theme states inspected in both widths and modes.
 
 ### Validation Results
 
@@ -108,23 +113,24 @@ git status --short --branch
 
 ### Status
 
-`in_progress`
+`done`
 
 ### Tasks
 
-- [ ] Re-query versions/tags and record public-channel baselines; stop if beta.20 is consumed.
+- [x] Re-query versions/tags and record public-channel baselines; stop if beta.20 is consumed.
 - [x] Verify npm trust metadata through authenticated settings without exposing credentials.
 - [x] Verify npm CLI >=11.5.1; stop on missing/mismatched trust rather than substituting a token.
-- [ ] Add exact v0.1.0-beta.20 tag allowances to macos-release and npm-publish only.
-- [ ] Preserve reviewers and existing policy entries; HappyCool121 handles protected approvals.
+- [x] Add exact v0.1.0-beta.20 tag allowances to macos-release and npm-publish only.
+- [x] Preserve reviewers and existing policy entries; HappyCool121 handles protected approvals.
 
 ### Acceptance Criteria
 
-- [ ] Publishing configuration verified; tag available; exact tag allowed without wildcard policy.
+- [x] Publishing configuration verified; tag available; exact tag allowed without wildcard policy.
 
 ### Validation Results
 
-Not run.
+Completed on 2026-09-10; see the release receipt below for immutable identities, workflows,
+channel results, and verification evidence.
 
 ---
 
@@ -132,15 +138,15 @@ Not run.
 
 ### Status
 
-`todo`
+`done`
 
 ### Tasks
 
-- [ ] Tag and push only v0.1.0-beta.20 from the clean merged SHA to origin.
-- [ ] Require release-tag validation/native builds, protected aggregation, and verified draft assets.
-- [ ] Verify native ZIPs, SBOMs, tarball, checksums, schema-3 manifest, and attestations.
-- [ ] Dispatch promote-release.yml at the same tag with phase publish-candidate and channel beta.
-- [ ] Require GitHub-before-npm ordering and all four anonymous platform smoke jobs.
+- [x] Tag and push only v0.1.0-beta.20 from the clean merged SHA to origin.
+- [x] Require release-tag validation/native builds, protected aggregation, and verified draft assets.
+- [x] Verify native ZIPs, SBOMs, tarball, checksums, schema-3 manifest, and attestations.
+- [x] Dispatch promote-release.yml at the same tag with phase publish-candidate and channel beta.
+- [x] Require GitHub-before-npm ordering and all four anonymous platform smoke jobs.
 
 ### Commands
 
@@ -152,11 +158,12 @@ gh workflow run promote-release.yml --repo adrouter/adrouterAgent --ref v0.1.0-b
 
 ### Acceptance Criteria
 
-- [ ] Exact GitHub-built tarball published to candidate; native assets verify and smoke jobs pass.
+- [x] Exact GitHub-built tarball published to candidate; native assets verify and smoke jobs pass.
 
 ### Validation Results
 
-Not run.
+Completed on 2026-09-10; see the release receipt below for immutable identities, workflows,
+channel results, and verification evidence.
 
 ---
 
@@ -164,22 +171,68 @@ Not run.
 
 ### Status
 
-`todo`
+`done`
 
 ### Tasks
 
-- [ ] Independently verify candidate = beta.20 and beta/latest equal recorded baselines.
-- [ ] Match registry tarball integrity and all public ZIP hashes to GitHub release evidence.
-- [ ] Record immutable source SHA, tag, workflow URLs, hashes, and acceptance limitations here.
-- [ ] Review final diff and remove temporary test/debug files. Report partial completion accurately.
+- [x] Independently verify candidate = beta.20 and beta/latest equal recorded baselines.
+- [x] Match registry tarball integrity and all public ZIP hashes to GitHub release evidence.
+- [x] Record immutable source SHA, tag, workflow URLs, hashes, and acceptance limitations here.
+- [x] Keep this post-publication receipt on a separate local documentation branch; no further
+      remote source push or release rebuild is part of this receipt.
+- [x] Review final diff and remove temporary test/debug files. Report partial completion accurately.
 
 ### Acceptance Criteria
 
-- [ ] Candidate publication and checks proven separately; no public-channel finalization.
+- [x] Candidate publication and checks proven separately; no public-channel finalization.
 
 ### Validation Results
 
-Not run.
+Completed on 2026-09-10; see the release receipt below for immutable identities, workflows,
+channel results, and verification evidence.
+
+## Release Receipt — 2026-09-10
+
+- Published candidate: **0.1.0-beta.20**.
+- npm beta/latest remain **0.1.0-beta.16**; candidate previously identified beta.19.
+- Immutable tag: v0.1.0-beta.20 at **f5db057f13b6ccbad83bfd63a2ac7467edc16522**.
+- Reviewed preparation: 7a7bece8b982f8c15b583a9a12aeeb05726789e4; its tree exactly matches the
+  operator's squash merge. Original beta.19 branch/history remains intact.
+- PR: https://github.com/adrouter/adrouterAgent/pull/31
+- Merged-source CI: https://github.com/adrouter/adrouterAgent/actions/runs/34462132457 — passed.
+- Native builds, protected aggregation, and draft release:
+  https://github.com/adrouter/adrouterAgent/actions/runs/34462672216 — passed.
+- GitHub-before-npm publication and anonymous macOS arm64/Intel, Ubuntu x64, Windows x64 smoke:
+  https://github.com/adrouter/adrouterAgent/actions/runs/34464043185 — passed.
+- Public prerelease: https://github.com/adrouter/adrouterAgent/releases/tag/v0.1.0-beta.20
+- HappyCool121 supplied both protected environment approvals. Exact tag allowances were added
+  without changing existing entries/reviewers. Creation of the new tag used the existing
+  repository-admin exception; no existing tag, package version, or release asset was replaced.
+- All ten draft files had valid GitHub attestations bound to release-tag.yml, the exact source
+  digest, and refs/tags/v0.1.0-beta.20. The eight payload/SBOM file hashes and sizes match both
+  artifact-manifest.json and SHA256SUMS; manifests/checksum-file attestations were also verified.
+- Independent ZIP inspection passed safe-entry/symlink checks and native executable architecture;
+  macOS bundle identity/version is com.adrouter.agent / 0.1.0 / 10020.
+- Independent anonymous downloads of every public ZIP matched the verified hashes below.
+- The anonymous npm tarball download exactly matched the GitHub-built tarball byte for byte;
+  registry SHA-512 integrity also matched.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| AdRouter-Agent-0.1.0-beta.20-darwin-universal.zip | `ced773977a099aa057bc647789e0166910fbce755e0f9352aebd76d6b13c5622` |
+| AdRouter-Agent-0.1.0-beta.20-linux-x64.zip | `d4dba3ae66143c9eddba1d6148e3581e298886c030967962209b7d49ddfcc64b` |
+| AdRouter-Agent-0.1.0-beta.20-win32-x64.zip | `2dc04ad9431d383eda9f20d39d5bfffe4699890e5f14e66293d03711edaeb519` |
+| AdRouter-Agent-0.1.0-beta.20-darwin-universal.cdx.json | `746372cf631bec1a46d98ee151cd2931e915871c603cdb7951e871a9b25e8410` |
+| AdRouter-Agent-0.1.0-beta.20-linux-x64.cdx.json | `746372cf631bec1a46d98ee151cd2931e915871c603cdb7951e871a9b25e8410` |
+| AdRouter-Agent-0.1.0-beta.20-win32-x64.cdx.json | `746372cf631bec1a46d98ee151cd2931e915871c603cdb7951e871a9b25e8410` |
+| adrouter-agent-0.1.0-beta.20.tgz | `203f5a527af877b90861b769a0a6a1947b91dab9123f50a205bfc051d92a20fa` |
+| AdRouter-Agent-0.1.0-beta.20-npm.cdx.json | `aac90d3e9dc1f9cc48a73d84279f8e42d667556ce0c273a25bf5084a9b294aba` |
+
+Npm tarball integrity: `sha512-8iZ0AS/0PRUvhVg62pntbZCquk8Vb0951UXj4OGp3s3hd5fK1TI/QL/DDoDiglqXkEiH44FEIFt4Bs8mGq40fA==`.
+
+This completes candidate publication only. No beta/latest movement, candidate removal,
+physical acceptance attestation, signing/notarization change, backup push, landing/WebUI
+change, Supabase mutation, or stable/automatic-update release occurred.
 
 ## Follow-up Work
 
