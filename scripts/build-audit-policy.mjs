@@ -1,6 +1,12 @@
+import { assertExtractZipPatch } from './extract-zip-patch.mjs';
+
 const ALLOWED_ADVISORY_URLS = new Set([
   'https://github.com/advisories/GHSA-mh99-v99m-4gvg',
   'https://github.com/advisories/GHSA-rgw5-rvv9-x895',
+]);
+const PATCHED_EXTRACT_ADVISORIES = new Set([
+  'https://github.com/advisories/GHSA-jmr9-qjv8-65gv',
+  'https://github.com/advisories/GHSA-7pqw-9j4j-h8q3',
 ]);
 const PRODUCTION_BRACE_PATH = 'node_modules/brace-expansion';
 const PRODUCTION_UNDICI_PATH = 'node_modules/@earendil-works/pi-coding-agent/node_modules/undici';
@@ -42,7 +48,7 @@ function assertDevOnly(name, vulnerability, lockPackages) {
   }
 }
 
-export function evaluateBuildAudit(report, lock) {
+export function evaluateBuildAudit(report, lock, { extractZipSource } = {}) {
   if (report?.auditReportVersion !== 2 || !report.vulnerabilities) {
     fail('npm returned a malformed or unavailable audit report');
   }
@@ -64,7 +70,18 @@ export function evaluateBuildAudit(report, lock) {
     }
     const terminals = terminalAdvisories(name, report.vulnerabilities);
     for (const advisory of terminals) {
-      if (!ALLOWED_ADVISORY_URLS.has(advisory.url) || advisory.severity !== 'high') {
+      const patchedExtract = PATCHED_EXTRACT_ADVISORIES.has(advisory.url);
+      if (patchedExtract) {
+        assertExtractZipPatch(extractZipSource ?? '', lock);
+        const nodes = report.vulnerabilities['extract-zip']?.nodes;
+        if (nodes?.length !== 1 || nodes[0] !== 'node_modules/extract-zip') {
+          fail('unexpected audited extract-zip resolution');
+        }
+      }
+      if (
+        (!ALLOWED_ADVISORY_URLS.has(advisory.url) && !patchedExtract) ||
+        advisory.severity !== 'high'
+      ) {
         fail(`${name} reaches unapproved advisory ${advisory.url ?? advisory.source ?? 'unknown'}`);
       }
     }

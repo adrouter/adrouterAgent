@@ -2,6 +2,25 @@
 
 All notable changes to AdRouter Agent are documented here.
 
+## [0.1.0-beta.20] - 2026-09-10
+
+### Changed
+
+- Refine dark chat with a neutral charcoal canvas, gray assistant messages, blue user prompts,
+  dark blue Tier A/B sponsor surfaces, and darker thinking and grouped-read panels.
+- Remove the dark composer inset highlight while preserving focus visibility; soften light-mode
+  thinking and grouped-read panels without changing light-mode message colors.
+- Prepare the original GitHub release workflow for beta.20 and update release-state guidance.
+- Include GitLab cross-platform validation configuration with GitLab publication held; GitHub
+  remains the native-release and npm candidate publisher.
+
+### Security
+
+- Pin patched build-only fast-uri 3.1.6 and xmldom 0.9.12 dependencies.
+- Backport extract-zip symlink containment and destination protections during installation;
+  verify exact patched bytes and dev-only resolution before permitting the two known advisories.
+  Add malicious archive and tamper regressions without changing runtime dependencies.
+
 ## [0.1.0-beta.19] - 2026-08-12
 
 ### Added
@@ -347,3 +366,5 @@ All notable changes to AdRouter Agent are documented here.
 [0.1.0-beta.4]: https://github.com/adrouter/adrouterAgent/releases/tag/v0.1.0-beta.4
 [0.1.0-beta.3]: https://github.com/adrouter/adrouterAgent/releases/tag/v0.1.0-beta.3
 [0.1.0-beta.2]: https://github.com/adrouter/adrouterAgent/releases/tag/v0.1.0-beta.2
+
+[0.1.0-beta.20]: https://github.com/adrouter/adrouterAgent/releases/tag/v0.1.0-beta.20

@@ -42,7 +42,7 @@ Latest channel:
 npm install --global @adrouter/agent@latest
 ```
 
-Security fix-forward candidate under acceptance testing (beta.18):
+Candidate channel for prereleases under acceptance testing:
 
 ```sh
 npm install --global @adrouter/agent@candidate
@@ -110,7 +110,7 @@ npm install --global @adrouter/agent@beta
 # Current recommended release
 npm install --global @adrouter/agent@latest
 
-# Security fix-forward candidate under acceptance testing (beta.18)
+# Candidate channel for prereleases under acceptance testing
 npm install --global @adrouter/agent@candidate
 ```
 

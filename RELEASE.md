@@ -1,6 +1,6 @@
 # Credential-free beta release procedure
 
-This runbook owns the unsigned/ad-hoc beta candidate path used by `0.1.0-beta.19`. It does not
+This runbook owns the unsigned/ad-hoc beta candidate path prepared for `0.1.0-beta.20`. It does not
 authorize a stable release or movement of npm `beta`/`latest`. Candidate publication must use the
 immutable tag, GitHub-built artifacts, GitHub-before-npm ordering, and npm trusted publishing.
 
@@ -25,6 +25,11 @@ git status --short --branch
 The root package, launcher package, source placeholder manifest, Forge bundle version, changelog,
 promotion default, and About metadata must agree. Checked-in `UNBUILT` hashes are placeholders and
 are never release evidence.
+
+The build tooling retains an exact-source extract-zip 2.0.1 security backport until an upstream
+release fixes its two symlink advisories. Installation applies the patch; audit and dependency
+checks require its SHA-256 and dev-only lockfile resolution. Archive regressions run in the
+launcher/policy suite. Do not bypass these checks or broaden the advisory allowance.
 
 ## 2. Immutable credential-free build
 
