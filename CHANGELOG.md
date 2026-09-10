@@ -2,6 +2,16 @@
 
 All notable changes to AdRouter Agent are documented here.
 
+## [0.1.0-beta.21] - 2026-09-10
+
+### Fixed
+
+- Fail incomplete Router streams visibly while preserving partial text and thinking; do not execute incomplete tool calls or replay consumed requests.
+- Release cancelled, timed-out, and oversized response reads without waiting indefinitely for transport cleanup.
+- Show failed task lifecycle errors and stop unfinished thinking/read indicators so another prompt can be submitted.
+
+The historical one-minute DeepSeek stall remains unverified. This candidate contains independently tested stream-handling fixes; output defaults remain unchanged.
+
 ## [0.1.0-beta.20] - 2026-09-10
 
 ### Changed
@@ -368,3 +378,5 @@ All notable changes to AdRouter Agent are documented here.
 [0.1.0-beta.2]: https://github.com/adrouter/adrouterAgent/releases/tag/v0.1.0-beta.2
 
 [0.1.0-beta.20]: https://github.com/adrouter/adrouterAgent/releases/tag/v0.1.0-beta.20
+
+[0.1.0-beta.21]: https://github.com/adrouter/adrouterAgent/releases/tag/v0.1.0-beta.21

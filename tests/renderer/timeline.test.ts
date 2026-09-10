@@ -33,6 +33,29 @@ const sponsor = (tier: 'A' | 'B' | 'C' | 'NONE', routerTurnId: string) => ({
 });
 
 describe('turn timeline projection', () => {
+  it('shows a terminal failure once and stops unfinished activity indicators', () => {
+    const timeline = buildTimeline(
+      [
+        event(1, 'thinking.delta', { text: 'Checking files' }),
+        event(2, 'tool.activity', {
+          name: 'read_file',
+          state: 'started',
+          toolCallId: 'read-1',
+          args: { path: 'style.css' },
+        }),
+        event(3, 'turn.lifecycle', { status: 'failed', error: 'Response timed out.' }),
+        event(4, 'turn.lifecycle', { status: 'failed', error: 'Response timed out.' }),
+      ],
+      turnId
+    );
+    expect(timeline.filter((item) => item.kind === 'error')).toHaveLength(1);
+    expect(timeline.at(-1)).toMatchObject({ kind: 'error', text: 'Response timed out.' });
+    expect(timeline.find((item) => item.kind === 'thinking')).toMatchObject({ active: false });
+    expect(timeline.find((item) => item.kind === 'read')).toMatchObject({
+      reads: [{ status: 'failed' }],
+    });
+  });
+
   it('keeps final evidence in the journal without projecting it into chat', () => {
     const timeline = buildTimeline([
       event(1, 'message.user', { text: 'Update the styles.' }),
