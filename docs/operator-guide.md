@@ -623,3 +623,10 @@ This map describes the current implementation, not a promise that the desktop
 and CLI will remain feature-identical. New capabilities should preserve the
 desktop's separate economics channel, approval semantics, and workspace
 boundaries.
+
+
+## Presence during long tasks
+
+The combined candidate source asks “Are you still there?” after 60 seconds of active work, including waiting for the first response. Press a fresh Enter to continue for another minute, or cancel the task. Existing streams keep arriving and settling; the next model request, tool, command, compaction or delegation waits at its runtime boundary. Unsent text and queued work are retained. Presence acknowledgement does not approve a command. Ordinary approval waits suspend the presence timer.
+
+Desktop IPC uses `turns.acknowledgePresence` with the thread, task and prompt IDs. The runtime validates current IDs independently of the renderer. Presence controls are separate from conversation context and approvals.

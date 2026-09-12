@@ -2,6 +2,14 @@
 
 All notable changes to AdRouter Agent are documented here.
 
+## [0.1.0-beta.22] - 2026-09-12
+
+### Changed
+
+- Add a 60-second task-bound presence dialog and IPC acknowledgement without submitting composer text or approving tools. Preserve active streams, cancellation and approval waits.
+- Add GLM-5.3 and both Qwen 3.8 models. Kimi coding support remains disabled pending live qualification.
+- Preserve timeline, appearance, approvals, output settings, partial-output retention and bounded transport recovery.
+
 ## [0.1.0-beta.21] - 2026-09-10
 
 ### Fixed

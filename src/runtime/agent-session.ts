@@ -40,6 +40,7 @@ import {
 } from './context-budget';
 import { createAdRouterPiProvider } from './pi-provider';
 import { sandboxReadiness } from './platform';
+import { PresenceGate } from './presence';
 import {
   AdRouterClient,
   type ProtectedRouterHeaders,
@@ -742,6 +743,23 @@ export const compactMessages = async (
 
 export class DesktopAgentSession {
   private session?: AgentSession;
+  private readonly presenceAbort = new AbortController();
+  private readonly presence = new PresenceGate((prompt) =>
+    this.emit({
+      type: prompt ? 'attention_required' : 'presence.cleared',
+      turnId: this.start.turnId,
+      timestamp: now(),
+      payload: prompt ? { ...prompt } : {},
+    })
+  );
+
+  public acknowledgePresence(taskId: string, promptId: string): boolean {
+    return this.presence.acknowledge(taskId, promptId);
+  }
+
+  private assertInteraction(): void {
+    if (this.presence.prompt) throw new Error('Acknowledge the current presence prompt first.');
+  }
   private currentSponsor: Sponsor | null = null;
   private readonly pendingApprovals = new Map<
     string,
@@ -768,6 +786,15 @@ export class DesktopAgentSession {
   }
 
   public async run(): Promise<void> {
+    this.presence.start(this.start.turnId);
+    try {
+      await this.runTask();
+    } finally {
+      this.presence.stop();
+    }
+  }
+
+  private async runTask(): Promise<void> {
     const router = new AdRouterClient({
       serverUrl: this.start.router.serverUrl,
       authentication:
@@ -786,6 +813,7 @@ export class DesktopAgentSession {
       | undefined;
     const provider = createAdRouterPiProvider({
       client: router,
+      beforeRequest: (signal) => this.presence.boundary(signal ?? this.presenceAbort.signal),
       model: this.start.model,
       thinkingLevel: this.start.thinkingLevel,
       runtimeMode: this.start.runtimeMode,
@@ -854,11 +882,24 @@ export class DesktopAgentSession {
       delegationEnabled: this.start.project.delegationEnabled,
       trustedSkills: this.start.project.trustedSkills,
       loadGuidance: this.loadGuidance,
-      executeOperation: this.executeOperation,
+      executeOperation: this.executeOperation
+        ? async (manifest, signal) => {
+            await this.presence.boundary(signal ?? this.presenceAbort.signal);
+            if (!this.executeOperation) throw new Error('Operation broker unavailable.');
+            return this.executeOperation(manifest, signal);
+          }
+        : undefined,
       requestApproval: (approval, signal) => this.requestApproval(approval, signal),
       emit: (type, payload) =>
         this.emit({ type, turnId: this.start.turnId, timestamp: now(), payload }),
     });
+    for (const tool of tools) {
+      const execute = tool.execute.bind(tool);
+      tool.execute = async (...args) => {
+        await this.presence.boundary(this.presenceAbort.signal);
+        return execute(...args);
+      };
+    }
     const optimizedPrompt = systemPrompt(this.start);
     const agentSystemPrompt = optimizedPrompt.systemPrompt;
     this.emit({
@@ -880,22 +921,25 @@ export class DesktopAgentSession {
     });
     const models = createModels();
     models.setProvider(provider.provider);
-    compactForInputLimit = async (context, signal) => ({
-      ...context,
-      messages: (await compactMessages(
-        context.messages as AgentMessage[],
-        this.emit,
-        this.compactionAnchors,
-        {
-          model: this.start.model,
-          systemPrompt: agentSystemPrompt,
-          tools,
-          signal,
-          state: this.compactionState,
-          force: true,
-        }
-      )) as Context['messages'],
-    });
+    compactForInputLimit = async (context, signal) => {
+      await this.presence.boundary(signal ?? this.presenceAbort.signal);
+      return {
+        ...context,
+        messages: (await compactMessages(
+          context.messages as AgentMessage[],
+          this.emit,
+          this.compactionAnchors,
+          {
+            model: this.start.model,
+            systemPrompt: agentSystemPrompt,
+            tools,
+            signal,
+            state: this.compactionState,
+            force: true,
+          }
+        )) as Context['messages'],
+      };
+    };
 
     const agent = new Agent({
       initialState: {
@@ -909,8 +953,9 @@ export class DesktopAgentSession {
       steeringMode: 'one-at-a-time',
       followUpMode: 'one-at-a-time',
       toolExecution: 'sequential',
-      transformContext: (messages, signal) =>
-        compactMessages(messages, this.emit, this.compactionAnchors, {
+      transformContext: async (messages, signal) => {
+        await this.presence.boundary(signal ?? this.presenceAbort.signal);
+        return compactMessages(messages, this.emit, this.compactionAnchors, {
           model: this.start.model,
           systemPrompt: agentSystemPrompt,
           tools,
@@ -918,7 +963,8 @@ export class DesktopAgentSession {
           providerModel: provider.model,
           signal,
           state: this.compactionState,
-        }),
+        });
+      },
     });
     const modelRuntime = await ModelRuntime.create({
       credentials: inMemoryRuntimeCredentials(),
@@ -985,11 +1031,13 @@ export class DesktopAgentSession {
         },
       });
     } finally {
+      this.presence.stop();
       await commandRunner.reset().catch(() => undefined);
     }
   }
 
   public steer(input: string): void {
+    this.assertInteraction();
     this.emit({
       type: 'message.user',
       turnId: this.start.turnId,
@@ -1000,6 +1048,7 @@ export class DesktopAgentSession {
   }
 
   public queueFollowUp(input: string): void {
+    this.assertInteraction();
     this.emit({
       type: 'message.user',
       turnId: this.start.turnId,
@@ -1017,6 +1066,7 @@ export class DesktopAgentSession {
   }
 
   public clearQueue(): void {
+    this.assertInteraction();
     this.session?.clearQueue();
     this.queuedFollowUps = 0;
     this.emit({
@@ -1029,6 +1079,8 @@ export class DesktopAgentSession {
 
   public stop(): void {
     this.stopped = true;
+    this.presenceAbort.abort();
+    this.presence.stop();
     this.session?.clearQueue();
     void this.session?.abort();
     for (const [, pending] of this.pendingApprovals) {
@@ -1039,6 +1091,7 @@ export class DesktopAgentSession {
   }
 
   public resolveApproval(approvalId: string, decision: ApprovalDecision): boolean {
+    if (this.presence.prompt) return false;
     const pending = this.pendingApprovals.get(approvalId);
     if (!pending) {
       return false;
@@ -1060,6 +1113,8 @@ export class DesktopAgentSession {
     if (this.pendingApprovals.size >= 8) {
       return 'deny';
     }
+    await this.presence.boundary(signal ?? this.presenceAbort.signal);
+    this.presence.pause();
     this.emit({
       type: 'approval.request',
       turnId: this.start.turnId,
@@ -1091,7 +1146,7 @@ export class DesktopAgentSession {
         },
         cleanup: () => signal?.removeEventListener('abort', abort),
       });
-    });
+    }).finally(() => this.presence.resume());
   }
 
   private forwardAgentEvent(event: AgentEvent): void {

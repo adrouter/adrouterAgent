@@ -40,6 +40,7 @@ const terminalStatuses = new Set<TurnStatus>(['completed', 'failed', 'cancelled'
 const MAX_AUTH_REQUESTS_PER_RUNTIME = 2;
 
 interface ActiveRuntime {
+  presence?: { taskId: string; promptId: string; issuedAt: number; acknowledged?: boolean };
   threadId: string;
   turnId: string;
   child: UtilityProcess;
@@ -301,11 +302,33 @@ export class RuntimeSupervisor {
     }
   }
 
+  public acknowledgePresence(threadId: string, taskId: string, promptId: string): void {
+    const active = this.getActive(threadId);
+    if (
+      active.turnId !== taskId ||
+      active.presence?.taskId !== taskId ||
+      active.presence.promptId !== promptId ||
+      active.presence.acknowledged ||
+      performance.now() - active.presence.issuedAt < 250
+    ) {
+      throw new Error('Presence acknowledgement is stale or premature.');
+    }
+    active.presence.acknowledged = true;
+    this.send(active, { type: 'presence-ack', taskId, promptId });
+  }
+
+  private assertPresence(threadId: string): void {
+    if (this.active.get(threadId)?.presence)
+      throw new Error('Acknowledge the current presence prompt first.');
+  }
+
   public steer(threadId: string, input: string): void {
+    this.assertPresence(threadId);
     this.send(this.getActive(threadId), { type: 'steer', input });
   }
 
   public queueFollowUp(threadId: string, input: string): void {
+    this.assertPresence(threadId);
     const pending = this.pending.get(threadId);
     if (pending) {
       if (pending.followUps.length >= 16)
@@ -320,6 +343,7 @@ export class RuntimeSupervisor {
   }
 
   public clearQueue(threadId: string): void {
+    this.assertPresence(threadId);
     const pending = this.pending.get(threadId);
     if (pending) {
       pending.followUps.length = 0;
@@ -369,6 +393,7 @@ export class RuntimeSupervisor {
     if (!approval || approval.decision) {
       throw new Error('Approval is not pending.');
     }
+    this.assertPresence(approval.threadId);
     const active = this.getActive(approval.threadId);
     if (active.turnId !== approval.turnId) {
       throw new Error('Approval does not belong to the active turn.');
@@ -643,6 +668,21 @@ export class RuntimeSupervisor {
       return;
     }
     const payload = safeRecord(runtimeEvent.payload);
+    if (runtimeEvent.type === 'attention_required') {
+      if (
+        runtimeEvent.turnId !== active.turnId ||
+        payload.taskId !== active.turnId ||
+        typeof payload.promptId !== 'string'
+      )
+        return;
+      active.presence = {
+        taskId: active.turnId,
+        promptId: payload.promptId,
+        issuedAt: performance.now(),
+      };
+    } else if (runtimeEvent.type === 'presence.cleared') {
+      active.presence = undefined;
+    }
     if (runtimeEvent.type === 'approval.request') {
       const approval = ApprovalSchema.parse({
         ...payload,

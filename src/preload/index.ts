@@ -31,6 +31,7 @@ import {
   type IpcMethod,
   IpcSchemas,
   type JournalEvent,
+  PresenceAckInputSchema,
   ProjectIdInputSchema,
   ProjectOpenInputSchema,
   ProjectUpdateInputSchema,
@@ -286,6 +287,10 @@ const api: AdrouterApi = {
       ),
     compact: async (input) =>
       TurnSchema.parse(await invoke('turns.compact', TurnCompactInputSchema.parse(input))),
+    acknowledgePresence: async (input) =>
+      IpcSchemas['turns.acknowledgePresence'].output.parse(
+        await invoke('turns.acknowledgePresence', PresenceAckInputSchema.parse(input))
+      ),
     clearQueue: async (input) =>
       IpcSchemas['turns.clearQueue'].output.parse(
         await invoke('turns.clearQueue', TurnClearQueueInputSchema.parse(input))

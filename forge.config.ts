@@ -195,7 +195,7 @@ const config: ForgeConfig = {
     beforeCopyExtraResources: [hardenMacInfoPlistHook],
     appBundleId: 'com.adrouter.agent',
     appVersion: '0.1.0',
-    buildVersion: '10021',
+    buildVersion: '10022',
     appCategoryType: 'public.app-category.developer-tools',
     appCopyright: 'Copyright 2026 AdRouter Agent contributors',
     extraResource: ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'PRIVACY.md'],

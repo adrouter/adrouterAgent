@@ -29,7 +29,7 @@ import type { RuntimeSupervisor } from './runtime-supervisor';
 import type { SessionService } from './session-service';
 import type { TaskService } from './task-service';
 
-const PUBLIC_RELEASE_VERSION = '0.1.0-beta.21';
+const PUBLIC_RELEASE_VERSION = '0.1.0-beta.22';
 
 interface Subscription {
   id: string;
@@ -365,6 +365,11 @@ export const registerIpcHandlers = (dependencies: IpcDependencies): EventSubscri
   });
   register('turns.compact', async (raw) => {
     return tasks.compact(IpcSchemas['turns.compact'].input.parse(raw).threadId);
+  });
+  register('turns.acknowledgePresence', (raw) => {
+    const input = IpcSchemas['turns.acknowledgePresence'].input.parse(raw);
+    supervisor.acknowledgePresence(input.threadId, input.taskId, input.promptId);
+    return { ok: true as const };
   });
   register('turns.clearQueue', (raw) => {
     supervisor.clearQueue(IpcSchemas['turns.clearQueue'].input.parse(raw).threadId);

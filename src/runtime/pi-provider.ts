@@ -21,6 +21,7 @@ import {
   contextOverflowMessage,
   estimateProviderContextBudget,
 } from './context-budget';
+import { EphemeralKimiReasoning } from './ephemeral-kimi';
 import { type AdRouterClient, RouterHttpError } from './router-client';
 
 const zeroUsage = {
@@ -34,6 +35,7 @@ const zeroUsage = {
 
 export interface AdRouterPiProviderOptions {
   client: AdRouterClient;
+  beforeRequest?: (signal?: AbortSignal) => Promise<void>;
   model: RouterModelDescriptor;
   thinkingLevel: ThinkingLevel;
   runtimeMode: RuntimeMode;
@@ -108,6 +110,7 @@ export const createAdRouterPiProvider = (
     maxTokens: options.model.maxOutputTokens,
   };
 
+  const kimiMemory = new EphemeralKimiReasoning();
   const stream: StreamFunction<Api, SimpleStreamOptions> = (
     requestedModel,
     context,
@@ -115,6 +118,9 @@ export const createAdRouterPiProvider = (
   ) => {
     const output = createAssistantMessageEventStream();
     queueMicrotask(async () => {
+      kimiMemory.select(requestedModel.id);
+      const isKimi = requestedModel.id === 'kimi-k3';
+      let kimiReasoning = '';
       const partial = initialMessage(requestedModel);
       let started = false;
       let sawToolCall = false;
@@ -182,12 +188,15 @@ export const createAdRouterPiProvider = (
       while (true) {
         let consumed = false;
         try {
+          await options.beforeRequest?.(streamOptions?.signal);
           for await (const event of options.client.turn(
             {
               model: requestedModel.id,
               thinkingLevel: options.thinkingLevel,
               runtimeMode: options.runtimeMode,
-              messages: activeContext.messages,
+              messages: isKimi
+                ? kimiMemory.prepare(activeContext.messages)
+                : activeContext.messages,
               tools: activeContext.tools ?? [],
               systemPrompt: activeContext.systemPrompt,
               projectDisplayName: options.projectDisplayName,
@@ -197,6 +206,7 @@ export const createAdRouterPiProvider = (
           )) {
             consumed = true;
             if (streamOptions?.signal?.aborted) {
+              if (isKimi) kimiMemory.clear();
               const aborted = asError(requestedModel, 'Request was cancelled.', true, partial);
               output.push({ type: 'error', reason: 'aborted', error: aborted });
               output.end(aborted);
@@ -210,7 +220,11 @@ export const createAdRouterPiProvider = (
                 text(event.delta);
                 break;
               case 'thinking':
-                thinking(event.delta);
+                if (isKimi) {
+                  kimiReasoning += event.delta;
+                  if (kimiReasoning.length > 2_000_000)
+                    throw new Error('Kimi continuation exceeded its memory limit.');
+                } else thinking(event.delta);
                 break;
               case 'tool_call': {
                 start();
@@ -286,11 +300,13 @@ export const createAdRouterPiProvider = (
                   stopReason: reason,
                   timestamp: Date.now(),
                 };
+                if (isKimi) kimiMemory.complete(completed, kimiReasoning);
                 output.push({ type: 'done', reason, message: completed });
                 output.end(completed);
                 return;
               }
               case 'error': {
+                if (isKimi) kimiMemory.clear();
                 const failed = asError(requestedModel, event.message, false, partial);
                 output.push({ type: 'error', reason: 'error', error: failed });
                 output.end(failed);
@@ -303,6 +319,7 @@ export const createAdRouterPiProvider = (
             'AdRouter stream ended before its completion event. Partial output was preserved.'
           );
         } catch (error) {
+          if (isKimi) kimiMemory.clear();
           const compactor = options.compactForInputLimit;
           const mayRetry =
             attempt === 0 &&

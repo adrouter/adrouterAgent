@@ -216,6 +216,9 @@ const handleRequest = async (raw: unknown): Promise<void> => {
       );
       void session.run().catch(crash);
       return;
+    case 'presence-ack':
+      session?.acknowledgePresence(request.taskId, request.promptId);
+      return;
     case 'steer':
       session?.steer(request.input);
       return;
