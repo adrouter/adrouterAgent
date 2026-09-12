@@ -11,6 +11,7 @@ test.describe('packaged functional agent', () => {
   test.skip(!executablePath, 'Set ADROUTER_E2E_APP to a packaged app executable for this check.');
 
   test('onboards, opens a non-Git folder, approves tools, and reviews the result', async () => {
+    test.setTimeout(120_000);
     const workspace = await mkdtemp(join(tmpdir(), 'adrouter-e2e-workspace-'));
     const userData = await mkdtemp(join(tmpdir(), 'adrouter-e2e-user-data-'));
     const original = 'status=old\n';
@@ -69,8 +70,18 @@ test.describe('packaged functional agent', () => {
         const send = (event: unknown): void => {
           response.write(`${JSON.stringify(event)}\n`);
         };
+        if (agentTurns === 5) {
+          send({ type: 'text', content: 'Partial response before disconnect.' });
+          response.end();
+          return;
+        }
         if (JSON.stringify(body).includes('stop this run')) {
           send({ type: 'thinking', content: 'Waiting for cancellation.' });
+          const heartbeat = setInterval(
+            () => send({ type: 'thinking', content: ' Still waiting.' }),
+            10_000
+          );
+          response.on('close', () => clearInterval(heartbeat));
           return;
         }
         if (agentTurns === 1) {
@@ -240,9 +251,33 @@ test.describe('packaged functional agent', () => {
       await expect(
         page.getByText('The approved edit and verification command completed.')
       ).toHaveCount(0);
+      await page.getByLabel('Task message').fill('Check the interrupted fixture.');
+      await page.getByRole('button', { name: 'Send' }).click();
+      await expect(
+        page.getByText('Partial response before disconnect.', { exact: true })
+      ).toBeVisible();
+      await expect(
+        page.getByText(/stream ended before its completion event/).first()
+      ).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Send' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Stop' })).toHaveCount(0);
       await page.getByLabel('Task message').fill('stop this run');
       await page.getByRole('button', { name: 'Send' }).click();
       await expect(page.getByRole('button', { name: 'Stop' })).toBeVisible();
+      await page.getByLabel('Task message', { exact: true }).fill('Preserve this unsent message');
+      await expect(page.getByText('Waiting for cancellation.', { exact: true })).toBeVisible();
+      const requestCountBeforePresence = agentTurns;
+      await expect(page.getByRole('dialog', { name: 'Are you still there?' })).toBeVisible({
+        timeout: 65_000,
+      });
+      expect(agentTurns).toBe(requestCountBeforePresence);
+      await page.waitForTimeout(300);
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('dialog', { name: 'Are you still there?' })).toHaveCount(0);
+      await expect(page.getByLabel('Task message', { exact: true })).toHaveValue(
+        'Preserve this unsent message'
+      );
+      expect(agentTurns).toBe(requestCountBeforePresence);
       await expect(page.evaluate(() => window.adrouter.configuration.signOut())).rejects.toThrow(
         'Stop all active or queued agent tasks before signing out.'
       );

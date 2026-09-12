@@ -484,6 +484,8 @@ export const EventTypeSchema = z.enum([
   'tool.activity',
   'tool.result',
   'command.output',
+  'attention_required',
+  'presence.cleared',
   'approval.request',
   'approval.resolved',
   'file.change',
@@ -1173,6 +1175,11 @@ export const TurnMessageInputSchema = z.object({
   threadId: IdSchema,
   input: z.string().min(1).max(200_000),
 });
+export const PresenceAckInputSchema = z.object({
+  threadId: IdSchema,
+  taskId: IdSchema,
+  promptId: IdSchema,
+});
 export const TurnStopInputSchema = z.object({ threadId: IdSchema });
 export const TurnCompactInputSchema = z.object({ threadId: IdSchema });
 export const TurnClearQueueInputSchema = z.object({ threadId: IdSchema });
@@ -1309,6 +1316,7 @@ export const IpcSchemas = {
   'turns.steer': { input: TurnMessageInputSchema, output: OkSchema },
   'turns.queueFollowUp': { input: TurnMessageInputSchema, output: OkSchema },
   'turns.compact': { input: TurnCompactInputSchema, output: TurnSchema },
+  'turns.acknowledgePresence': { input: PresenceAckInputSchema, output: OkSchema },
   'turns.clearQueue': { input: TurnClearQueueInputSchema, output: OkSchema },
   'turns.stop': { input: TurnStopInputSchema, output: OkSchema },
   'approvals.resolve': { input: ApprovalResolveInputSchema, output: ApprovalSchema },
@@ -1410,6 +1418,7 @@ export interface AdrouterApi {
     steer(input: z.input<typeof TurnMessageInputSchema>): Promise<{ ok: true }>;
     queueFollowUp(input: z.input<typeof TurnMessageInputSchema>): Promise<{ ok: true }>;
     compact(input: z.input<typeof TurnCompactInputSchema>): Promise<Turn>;
+    acknowledgePresence(input: z.input<typeof PresenceAckInputSchema>): Promise<{ ok: true }>;
     clearQueue(input: z.input<typeof TurnClearQueueInputSchema>): Promise<{ ok: true }>;
     stop(input: z.input<typeof TurnStopInputSchema>): Promise<{ ok: true }>;
   };

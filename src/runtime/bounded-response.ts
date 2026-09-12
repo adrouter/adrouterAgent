@@ -60,7 +60,7 @@ export async function* iterateBoundedResponse(
   const contentLength = Number(response.headers.get('content-length'));
   const label = options.label ?? 'Router response';
   if (Number.isFinite(contentLength) && contentLength > options.maxBytes) {
-    await response.body?.cancel().catch(() => undefined);
+    void response.body?.cancel().catch(() => undefined);
     throw new RouterResponseLimitError(`${label} exceeds the ${options.maxBytes}-byte limit.`);
   }
   if (!response.body) return;
@@ -84,7 +84,9 @@ export async function* iterateBoundedResponse(
       yield result.value;
     }
   } finally {
-    if (!completed) await reader.cancel().catch(() => undefined);
+    // A transport's cancellation promise may never settle. Do not let cleanup
+    // prevent the deadline/error from reaching the agent and releasing its turn.
+    if (!completed) void reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
 }

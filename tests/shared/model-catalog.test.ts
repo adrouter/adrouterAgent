@@ -37,6 +37,9 @@ describe('canonical AdRouter model catalog', () => {
       'mimo-v2.5-pro',
       'agnes-2.0-flash',
       'agnes-2.5-flash',
+      'glm-5.3',
+      'qwen3.8-max',
+      'qwen3.8-flash',
     ]);
     expect(bundledCatalogModels()).toEqual(
       validated.models.map((model) => ({ ...model, configured: false }))
@@ -67,7 +70,7 @@ describe('canonical AdRouter model catalog', () => {
       schema_version: 2,
       models: extra.models.map(({ configured: _configured, ...model }) => model),
     });
-    expect(validateLiveCatalog(extra, true).models).toHaveLength(6);
+    expect(validateLiveCatalog(extra, true).models).toHaveLength(9);
   });
 
   it('allows a legacy server-scoped custom catalog without hosted ID inference', () => {

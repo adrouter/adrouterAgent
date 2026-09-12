@@ -86,3 +86,33 @@ describe('runtime supervision boundaries', () => {
     expect(send).toHaveBeenCalledWith('adrouter:event', { subscriptionId, event });
   });
 });
+
+it('binds IPC presence to the active task, rejects repeats, and blocks ordinary input', () => {
+  const supervisor = new RuntimeSupervisor({} as AppDatabase, '/fixture/runtime.js', () => {});
+  const postMessage = vi.fn();
+  const taskId = randomUUID();
+  const promptId = randomUUID();
+  Object.defineProperty(supervisor, 'active', {
+    value: new Map([
+      [
+        'thread',
+        {
+          turnId: taskId,
+          child: { postMessage },
+          presence: { taskId, promptId, issuedAt: performance.now() - 500 },
+        },
+      ],
+    ]),
+  });
+  expect(() => supervisor.steer('thread', 'must not execute')).toThrow(/presence prompt/);
+  expect(() => supervisor.queueFollowUp('thread', 'must not queue')).toThrow(/presence prompt/);
+  expect(() => supervisor.clearQueue('thread')).toThrow(/presence prompt/);
+  expect(() => supervisor.acknowledgePresence('thread', randomUUID(), promptId)).toThrow(/stale/);
+  expect(() => supervisor.acknowledgePresence('thread', taskId, randomUUID())).toThrow(/stale/);
+  supervisor.acknowledgePresence('thread', taskId, promptId);
+  expect(postMessage).toHaveBeenCalledExactlyOnceWith({
+    kind: 'request',
+    request: { type: 'presence-ack', taskId, promptId },
+  });
+  expect(() => supervisor.acknowledgePresence('thread', taskId, promptId)).toThrow(/stale/);
+});

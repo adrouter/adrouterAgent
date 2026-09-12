@@ -84,6 +84,7 @@ export const RuntimeRequestSchema = z.discriminatedUnion('type', [
   RuntimeClearQueueSchema,
   RuntimeStopSchema,
   RuntimeApprovalSchema,
+  z.object({ type: z.literal('presence-ack'), taskId: IdSchema, promptId: IdSchema }),
 ]);
 export type RuntimeRequest = z.infer<typeof RuntimeRequestSchema>;
 

@@ -2,6 +2,24 @@
 
 All notable changes to AdRouter Agent are documented here.
 
+## [0.1.0-beta.22] - 2026-09-12
+
+### Changed
+
+- Add a 60-second task-bound presence dialog and IPC acknowledgement without submitting composer text or approving tools. Preserve active streams, cancellation and approval waits.
+- Add GLM-5.3 and both Qwen 3.8 models. Kimi coding support remains disabled pending live qualification.
+- Preserve timeline, appearance, approvals, output settings, partial-output retention and bounded transport recovery.
+
+## [0.1.0-beta.21] - 2026-09-10
+
+### Fixed
+
+- Fail incomplete Router streams visibly while preserving partial text and thinking; do not execute incomplete tool calls or replay consumed requests.
+- Release cancelled, timed-out, and oversized response reads without waiting indefinitely for transport cleanup.
+- Show failed task lifecycle errors and stop unfinished thinking/read indicators so another prompt can be submitted.
+
+The historical one-minute DeepSeek stall remains unverified. This candidate contains independently tested stream-handling fixes; output defaults remain unchanged.
+
 ## [0.1.0-beta.20] - 2026-09-10
 
 ### Changed
@@ -368,3 +386,5 @@ All notable changes to AdRouter Agent are documented here.
 [0.1.0-beta.2]: https://github.com/adrouter/adrouterAgent/releases/tag/v0.1.0-beta.2
 
 [0.1.0-beta.20]: https://github.com/adrouter/adrouterAgent/releases/tag/v0.1.0-beta.20
+
+[0.1.0-beta.21]: https://github.com/adrouter/adrouterAgent/releases/tag/v0.1.0-beta.21

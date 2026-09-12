@@ -42,6 +42,57 @@ const createProvider = (
 };
 
 describe('AdRouter Pi provider', () => {
+  it('delegates the output default to Router through the normal runtime', async () => {
+    const fetchFn = vi.fn<typeof fetch>(
+      async () => new Response('{"type":"text","delta":"ok"}\n{"type":"done"}\n')
+    );
+    const { provider } = createProvider(fetchFn);
+    const result = await provider.stream(provider.model, { messages: [], tools: [] }).result();
+    expect(result.stopReason).toBe('stop');
+    expect(provider.model.maxTokens).toBe(canonicalModel.maxOutputTokens);
+    const request = fetchFn.mock.calls[0]?.[1];
+    const body = JSON.parse(Buffer.from(request?.body as Uint8Array).toString('utf8'));
+    expect(body).not.toHaveProperty('max_output_tokens');
+  });
+
+  it.each([
+    '',
+    '{"type":"thinking","delta":"Considering the stylesheet"}\n',
+    '{"type":"text","delta":"Partial answer"}\n',
+    '{"type":"tool_call","id":"read-1","name":"read_file","arguments":{"path":"style.css"}}\n',
+  ])('fails closed when the transport ends without completion: %s', async (body) => {
+    const fetchFn = vi.fn(async () => new Response(body));
+    const { provider } = createProvider(fetchFn);
+    const stream = provider.stream(provider.model, {
+      messages: [{ role: 'user', content: 'Change the blog color to yellow', timestamp: 0 }],
+      tools: [],
+    });
+    const events = await collect(stream);
+    expect(events.at(-1)).toMatchObject({
+      type: 'error',
+      error: { stopReason: 'error', errorMessage: expect.stringContaining('completion event') },
+    });
+    expect(events.filter((event) => event.type === 'done')).toHaveLength(0);
+    const result = await stream.result();
+    expect(result.content.some((block) => block.type === 'toolCall')).toBe(false);
+    if (body.includes('Partial answer')) {
+      expect(result.content).toContainEqual({ type: 'text', text: 'Partial answer' });
+    }
+    expect(fetchFn).toHaveBeenCalledOnce();
+    fetchFn.mockResolvedValueOnce(
+      new Response('{"type":"text","delta":"Recovered"}\n{"type":"done"}\n')
+    );
+    const next = await provider
+      .stream(provider.model, {
+        messages: [{ role: 'user', content: 'Try a new prompt', timestamp: 1 }],
+        tools: [],
+      })
+      .result();
+    expect(next.stopReason).toBe('stop');
+    expect(next.content).toContainEqual({ type: 'text', text: 'Recovered' });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
   it('removes economics fields before a router tool call can reach a desktop tool', () => {
     const argumentsValue = sanitizeToolCallArguments({
       path: 'src/user.ts',
@@ -78,7 +129,10 @@ describe('AdRouter Pi provider', () => {
     });
   });
 
-  it('propagates Router token usage into the completed assistant message', async () => {
+  it.each([
+    false,
+    true,
+  ])('preserves Router usage on completion or truncation (%s)', async (truncated) => {
     const fetchFn: typeof fetch = vi.fn(
       async () =>
         new Response(
@@ -97,7 +151,15 @@ describe('AdRouter Pi provider', () => {
                 usage: { total_tokens: 127, cache_write_tokens: 2 },
               },
             }),
-            JSON.stringify({ type: 'done' }),
+            JSON.stringify(
+              truncated
+                ? {
+                    type: 'error',
+                    code: 'output_truncated',
+                    message: 'Output reached its token limit',
+                  }
+                : { type: 'done' }
+            ),
             '',
           ].join('\n')
         )
@@ -114,18 +176,20 @@ describe('AdRouter Pi provider', () => {
     expect(onSettlement).toHaveBeenCalledWith(
       expect.objectContaining({ inputTokens: 100, outputTokens: 20, totalTokens: 127 })
     );
-    expect(events.findLast((event) => event.type === 'done')).toMatchObject({
-      message: {
-        usage: {
-          input: 100,
-          output: 20,
-          cacheRead: 5,
-          cacheWrite: 2,
-          totalTokens: 127,
-          cost: { total: 0.02 },
+    expect(events.findLast((event) => event.type === (truncated ? 'error' : 'done'))).toMatchObject(
+      {
+        [truncated ? 'error' : 'message']: {
+          usage: {
+            input: 100,
+            output: 20,
+            cacheRead: 5,
+            cacheWrite: 2,
+            totalTokens: 127,
+            cost: { total: 0.02 },
+          },
         },
-      },
-    });
+      }
+    );
   });
 
   it('compacts and retries exactly once only when a structured input rejection arrives before output', async () => {
@@ -183,4 +247,27 @@ describe('AdRouter Pi provider', () => {
     expect(fetchFn).toHaveBeenCalledOnce();
     expect(compactForInputLimit).not.toHaveBeenCalled();
   });
+});
+
+it('keeps Kimi continuation out of events and saved messages across a tool round', async () => {
+  const fetchFn = vi.fn<typeof fetch>(
+    async () =>
+      new Response(
+        '{"type":"thinking","delta":"private fixture reasoning"}\n' +
+          '{"type":"tool_call","id":"read-1","name":"read_file","arguments":{"path":"a.txt"}}\n' +
+          '{"type":"done"}\n'
+      )
+  );
+  const { provider } = createProvider(fetchFn);
+  const kimi = { ...provider.model, id: 'kimi-k3' };
+  const first = provider.stream(kimi, { messages: [], tools: [] });
+  const events = await collect(first);
+  const message = await first.result();
+  expect(JSON.stringify(events)).not.toContain('private fixture reasoning');
+  expect(JSON.stringify(message)).not.toContain('private fixture reasoning');
+  await provider.stream(kimi, { messages: [message], tools: [] }).result();
+  const body = JSON.parse(
+    Buffer.from(fetchFn.mock.calls[1]?.[1]?.body as Uint8Array).toString('utf8')
+  );
+  expect(JSON.stringify(body.context.messages)).toContain('private fixture reasoning');
 });

@@ -1,5 +1,9 @@
 # AdRouter Agent repository instructions
 
+## Active release authority
+
+`adrouter` is active; `adrouter-co` is backup only. This supersedes conflicting migration guidance while preserving historical receipts. Explicit client release targets are `adrouter/adrouterCLI`, `adrouter/adrouterAgent`, and `adrouter/adrouter-opencode`. Do not infer authority from local remote names or enable backup release workflows. Combined successor candidates include new models, preserved UI/output improvements, and CLI/Desktop presence gating before acceptance; promotion remains separately authorized.
+
 ## Scope and repository boundary
 
 This independent repository is the canonical Electron desktop Agent and public npm launcher. Its

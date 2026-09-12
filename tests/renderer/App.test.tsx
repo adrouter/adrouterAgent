@@ -43,7 +43,13 @@ const api = {
   },
   sessions: { export: vi.fn(), import: vi.fn() },
   git: { preview: vi.fn(), resolve: vi.fn() },
-  turns: { start: vi.fn(), steer: vi.fn(), queueFollowUp: vi.fn(), stop: vi.fn() },
+  turns: {
+    start: vi.fn(),
+    steer: vi.fn(),
+    queueFollowUp: vi.fn(),
+    stop: vi.fn(),
+    acknowledgePresence: vi.fn(),
+  },
   approvals: { resolve: vi.fn() },
   review: {
     getDiff: vi.fn(),
@@ -956,4 +962,88 @@ describe('App onboarding', () => {
     );
     expect(screen.getByLabelText('settings drawer')).toHaveAttribute('data-side', 'right');
   });
+});
+
+it('consumes presence Enter independently of composer and approvals, including key repeats', async () => {
+  const project = {
+    id: '11111111-1111-4111-8111-111111111111',
+    path: '/tmp/project',
+    displayName: 'project',
+    instructions: '',
+    repositoryInstructions: '',
+    repositoryInstructionFiles: [],
+    permissionMode: 'workspace-write',
+    git: null,
+  };
+  const thread = {
+    id: '22222222-2222-4222-8222-222222222222',
+    projectId: project.id,
+    title: 'Presence test',
+    model: 'fixture-model',
+    thinkingLevel: 'medium',
+    status: 'running',
+    archivedAt: null,
+  };
+  const taskId = '33333333-3333-4333-8333-333333333333';
+  const promptId = '44444444-4444-4444-8444-444444444444';
+  const event = {
+    id: 'presence-event',
+    sequence: 1,
+    threadId: thread.id,
+    turnId: taskId,
+    timestamp: '2026-09-12T00:00:00.000Z',
+    type: 'attention_required',
+    payload: { taskId, promptId },
+  };
+  api.configuration.get.mockResolvedValue({
+    serverUrl: 'https://router.example',
+    configured: true,
+    tokenStored: true,
+    sponsoredCompute: true,
+    models: ['fixture-model'],
+  });
+  api.projects.list.mockResolvedValue([project]);
+  api.threads.list.mockResolvedValue([thread]);
+  api.threads.get.mockResolvedValue({
+    thread,
+    turns: [{ id: taskId, status: 'running' }],
+    events: [event],
+    approvals: [],
+  });
+  api.review.getDiff.mockResolvedValue([]);
+  let emit: ((event: unknown) => void) | undefined;
+  api.events.subscribe.mockImplementation(async (_input, callback) => {
+    emit = callback;
+    return 'presence-sub';
+  });
+  api.turns.acknowledgePresence.mockResolvedValue({ ok: true });
+  Object.defineProperty(window, 'adrouter', { configurable: true, value: api });
+  vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+  render(<App />);
+  await screen.findByRole('dialog', { name: 'Are you still there?' });
+  fireEvent.keyDown(window, { key: 'Enter', repeat: true });
+  expect(api.turns.acknowledgePresence).not.toHaveBeenCalled();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  fireEvent.keyDown(window, { key: 'Enter' });
+  await waitFor(() =>
+    expect(api.turns.acknowledgePresence).toHaveBeenCalledWith({
+      threadId: thread.id,
+      taskId,
+      promptId,
+    })
+  );
+  act(() =>
+    emit?.({ ...event, id: 'clear-event', sequence: 2, type: 'presence.cleared', payload: {} })
+  );
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog', { name: 'Are you still there?' })).not.toBeInTheDocument()
+  );
+  const repeated = new KeyboardEvent('keydown', { key: 'Enter', repeat: true, cancelable: true });
+  window.dispatchEvent(repeated);
+  expect(repeated.defaultPrevented).toBe(true);
+  fireEvent.keyUp(window, { key: 'Enter' });
+  expect(api.turns.acknowledgePresence).toHaveBeenCalledOnce();
+  expect(api.turns.start).not.toHaveBeenCalled();
+  expect(api.turns.queueFollowUp).not.toHaveBeenCalled();
+  expect(api.approvals.resolve).not.toHaveBeenCalled();
 });

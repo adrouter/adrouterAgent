@@ -5,7 +5,7 @@ import type { RouterModelDescriptor } from '../contracts';
 
 export const ADROUTER_CATALOG_SCHEMA_VERSION = 2 as const;
 export const ADROUTER_CATALOG_DIGEST =
-  'sha256:ee5aba34ad122c6864045cbedc1b982ceefebeb3cfaaa5f15ab90ad34a82cb8b' as const;
+  'sha256:6c48a4b0142dbc8a19813799c146a6bb5f828ebc3240471ce94313091b805bf3' as const;
 
 export const BUNDLED_ADROUTER_MODELS: readonly RouterModelDescriptor[] = [
   {
@@ -102,6 +102,54 @@ export const BUNDLED_ADROUTER_MODELS: readonly RouterModelDescriptor[] = [
     contextWindow: 524_288,
     maxInputTokens: 458_752,
     maxOutputTokens: 65_536,
+    configured: false,
+  },
+  {
+    id: 'glm-5.3',
+    provider: 'zai',
+    modelClass: 'pro',
+    displayName: 'GLM 5.3',
+    providerLabel: 'Z.AI',
+    description: 'Z.AI reasoning model with always-on thinking.',
+    thinkingLevels: ['high'],
+    defaultThinkingLevel: 'high',
+    inputModalities: ['text'],
+    toolCalling: true,
+    contextWindow: 1_048_576,
+    maxInputTokens: 851_968,
+    maxOutputTokens: 131_072,
+    configured: false,
+  },
+  {
+    id: 'qwen3.8-max',
+    provider: 'qwen',
+    modelClass: 'pro',
+    displayName: 'Qwen 3.8 Max',
+    providerLabel: 'Qwen',
+    description: 'Qwen multimodal model with optional thinking.',
+    thinkingLevels: ['none', 'high'],
+    defaultThinkingLevel: 'high',
+    inputModalities: ['text', 'image'],
+    toolCalling: true,
+    contextWindow: 1_000_000,
+    maxInputTokens: 851_968,
+    maxOutputTokens: 128_000,
+    configured: false,
+  },
+  {
+    id: 'qwen3.8-flash',
+    provider: 'qwen',
+    modelClass: 'flash',
+    displayName: 'Qwen 3.8 Flash',
+    providerLabel: 'Qwen',
+    description: 'Qwen multimodal model with optional thinking.',
+    thinkingLevels: ['none', 'high'],
+    defaultThinkingLevel: 'high',
+    inputModalities: ['text', 'image'],
+    toolCalling: true,
+    contextWindow: 1_000_000,
+    maxInputTokens: 851_968,
+    maxOutputTokens: 128_000,
     configured: false,
   },
 ] as const;

@@ -311,6 +311,79 @@ export function App(): JSX.Element {
       ),
     [detail?.events]
   );
+  const presenceEvent = [...(detail?.events ?? [])]
+    .reverse()
+    .find(
+      (event) =>
+        event.turnId === runningTurnId &&
+        (event.type === 'attention_required' || event.type === 'presence.cleared')
+    );
+  const presence =
+    isRunning && presenceEvent?.type === 'attention_required' ? presenceEvent : undefined;
+  const presenceArmedAt = useRef(0);
+  const presenceConsumed = useRef<string | undefined>(undefined);
+  const presenceEnterHeld = useRef(false);
+  useEffect(() => {
+    presenceArmedAt.current = performance.now() + 250;
+    const onFocus = (): void => {
+      presenceArmedAt.current = performance.now() + 250;
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (!presence || !selectedThreadId) {
+        if (event.key === 'Enter' && presenceEnterHeld.current) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+        return;
+      }
+      if (event.key === 'Enter') presenceEnterHeld.current = true;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (
+        event.repeat ||
+        event.isComposing ||
+        document.visibilityState !== 'visible' ||
+        !document.hasFocus()
+      )
+        return;
+      if (event.key === 'Escape') {
+        void window.adrouter.turns.stop({ threadId: selectedThreadId });
+        return;
+      }
+      if (
+        event.key !== 'Enter' ||
+        performance.now() < presenceArmedAt.current ||
+        presenceConsumed.current === presence.id
+      )
+        return;
+      presenceConsumed.current = presence.id;
+      void window.adrouter.turns
+        .acknowledgePresence({
+          threadId: selectedThreadId,
+          taskId: String(presence.payload.taskId),
+          promptId: String(presence.payload.promptId),
+        })
+        .catch((error) => {
+          presenceConsumed.current = undefined;
+          setError(String(error));
+        });
+    };
+    const onKeyUp = (event: KeyboardEvent): void => {
+      if (event.key === 'Enter' && presenceEnterHeld.current) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        presenceEnterHeld.current = false;
+      }
+    };
+    window.addEventListener('keyup', onKeyUp, true);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('keyup', onKeyUp, true);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [presence, selectedThreadId]);
   const pendingApproval = detail?.approvals.find((approval) => approval.decision === null);
   const selectedDiff = diffs.find((diff) => diff.path === selectedDiffPath) ?? diffs[0];
   const bottomSponsor = useMemo(() => latestBottomSponsor(detail?.events ?? []), [detail?.events]);
@@ -1314,6 +1387,37 @@ export function App(): JSX.Element {
               ))}
             </div>
           </div>
+          {presence && (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Are you still there?"
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 10000,
+                background: 'rgba(0,0,0,.65)',
+                display: 'grid',
+                placeItems: 'center',
+              }}
+            >
+              <section className="approval-card" style={{ maxWidth: 440 }}>
+                <h2>Are you still there?</h2>
+                <p>
+                  Press Enter to continue for another minute. Current output will finish arriving.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedThreadId)
+                      void window.adrouter.turns.stop({ threadId: selectedThreadId });
+                  }}
+                >
+                  Cancel task
+                </button>
+              </section>
+            </div>
+          )}
           <div className="composer-dock">
             <div className="composer-stack" ref={composerStackRef}>
               <ComposerPanel shown={Boolean(visibleBottomSponsor)} kind="sponsor">

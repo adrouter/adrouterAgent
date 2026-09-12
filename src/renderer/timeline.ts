@@ -85,9 +85,30 @@ export const buildTimeline = (
   const latestSponsorByTurn = new Map<string, Sponsor>();
   const sponsorByRouterTurn = new Map<string, Sponsor>();
   const roundsByTurn = new Map<string, SponsorRound[]>();
+  const terminalFailureTurns = new Set<string>();
 
   for (const event of events) {
     const turnId = event.turnId;
+    if (
+      event.type === 'turn.lifecycle' &&
+      turnId &&
+      ['failed', 'interrupted', 'cancelled', 'blocked'].includes(String(event.payload.status))
+    ) {
+      for (const item of items) {
+        if (item.turnId !== turnId) continue;
+        if (item.kind === 'thinking') item.active = false;
+        if (item.kind === 'tool' && item.status === 'running') item.status = 'failed';
+        if (item.kind === 'read') {
+          for (const read of item.reads) if (read.status === 'running') read.status = 'failed';
+        }
+      }
+      const text = eventText(event);
+      if (text && !terminalFailureTurns.has(turnId)) {
+        items.push({ id: event.id, kind: 'error', turnId, title: 'Task stopped', text });
+        terminalFailureTurns.add(turnId);
+      }
+      continue;
+    }
     if (event.type === 'sponsor.update') {
       const sponsor = sponsorValue(event.payload);
       if (sponsor && turnId) {

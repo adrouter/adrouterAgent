@@ -9,6 +9,10 @@ export const EXPECTED_MODEL_IDS = [
   'agnes-2.5-flash',
   'agnes-2.5-pro',
   'agnes-2.5-pro-alpha',
+  'glm-5.3',
+  'qwen3.8-max',
+  'qwen3.8-flash',
+  'kimi-k3',
 ];
 
 const EXPECTED_MODES = {
@@ -20,6 +24,10 @@ const EXPECTED_MODES = {
   'agnes-2.5-flash': [['none', 'high'], 'none', 'agnes', 'flash'],
   'agnes-2.5-pro': [['high'], 'high', 'agnes', 'pro'],
   'agnes-2.5-pro-alpha': [['high'], 'high', 'agnes', 'pro'],
+  'glm-5.3': [['high'], 'high', 'zai', 'pro'],
+  'qwen3.8-max': [['none', 'high'], 'high', 'qwen', 'pro'],
+  'qwen3.8-flash': [['none', 'high'], 'high', 'qwen', 'flash'],
+  'kimi-k3': [['high'], 'high', 'moonshot', 'pro'],
 };
 
 const EXPECTED_CAPABILITIES = {
@@ -31,6 +39,10 @@ const EXPECTED_CAPABILITIES = {
   'agnes-2.5-flash': [['text', 'image'], true],
   'agnes-2.5-pro': [['text', 'image'], false],
   'agnes-2.5-pro-alpha': [['text', 'image'], false],
+  'glm-5.3': [['text'], true],
+  'qwen3.8-max': [['text', 'image'], true],
+  'qwen3.8-flash': [['text', 'image'], true],
+  'kimi-k3': [['text', 'image'], false],
 };
 
 const EXPECTED_LIMITS = {
@@ -42,6 +54,10 @@ const EXPECTED_LIMITS = {
   'agnes-2.5-flash': [524_288, 458_752, 65_536],
   'agnes-2.5-pro': [1_048_576, 851_968, 131_072],
   'agnes-2.5-pro-alpha': [1_048_576, 786_432, 196_608],
+  'glm-5.3': [1048576, 851968, 131072],
+  'qwen3.8-max': [1000000, 851968, 128000],
+  'qwen3.8-flash': [1000000, 851968, 128000],
+  'kimi-k3': [1048576, 851968, 131072],
 };
 
 const TOP_LEVEL_KEYS = ['catalog_digest', 'models', 'schema_version'];
