@@ -409,6 +409,7 @@ describe('InstallationAuthManager', () => {
         { id: 'glm-5.3', toolCalling: true },
         { id: 'qwen3.8-max', toolCalling: true },
         { id: 'qwen3.8-flash', toolCalling: true },
+        { id: 'kimi-k3', toolCalling: true },
       ],
       catalog: { schemaVersion: 2, compatibility: 'compatible' },
       authentication: { state: 'connected' },

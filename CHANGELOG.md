@@ -1,3 +1,9 @@
+## 0.1.0-beta.23 - 2026-09-12
+
+### Added
+
+- Enable Kimi K3 coding with memory-only tool continuation and preserved runtime approvals and presence checks.
+
 # Changelog
 
 All notable changes to AdRouter Agent are documented here.

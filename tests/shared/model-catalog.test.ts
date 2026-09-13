@@ -40,6 +40,7 @@ describe('canonical AdRouter model catalog', () => {
       'glm-5.3',
       'qwen3.8-max',
       'qwen3.8-flash',
+      'kimi-k3',
     ]);
     expect(bundledCatalogModels()).toEqual(
       validated.models.map((model) => ({ ...model, configured: false }))
@@ -70,7 +71,7 @@ describe('canonical AdRouter model catalog', () => {
       schema_version: 2,
       models: extra.models.map(({ configured: _configured, ...model }) => model),
     });
-    expect(validateLiveCatalog(extra, true).models).toHaveLength(9);
+    expect(validateLiveCatalog(extra, true).models).toHaveLength(10);
   });
 
   it('allows a legacy server-scoped custom catalog without hosted ID inference', () => {
