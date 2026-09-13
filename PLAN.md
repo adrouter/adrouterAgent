@@ -1,6 +1,6 @@
-# Active iteration: 0.1.0-beta.23 — 12 September 2026
+# Active iteration: 0.1.0-beta.24 — 12 September 2026
 
-Operator approved Kimi CLI/Desktop qualification, early OpenCode ad delivery with a permanent three-row footer, hosted Router update and immutable successor candidate publication. Kimi stays excluded from OpenCode. Preserve preceding UI/output/presence work and all historical receipts below. beta/latest stay unchanged. Needed Kimi test tokens are authorized; preserve account caps and private-data boundaries. Implementation and qualification are in progress; publication is not yet claimed.
+Operator approved Kimi CLI/Desktop qualification, early OpenCode ad delivery with a permanent three-row footer, hosted Router update and immutable successor candidate publication. Kimi stays excluded from OpenCode. Preserve preceding UI/output/presence work and all historical receipts below. beta/latest stay unchanged. Needed Kimi test tokens are authorized; preserve account caps and private-data boundaries. Kimi qualification passed. The beta.23 tag failed its changelog heading gate before packaging; beta.24 fixes forward without moving it. Run local release readiness and protected native/package checks before candidate publication. Physical macOS/Windows acceptance belongs to the operator.
 
 # Candidate publication authorization — 12 September 2026
 

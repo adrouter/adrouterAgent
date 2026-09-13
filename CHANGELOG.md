@@ -1,4 +1,8 @@
-## 0.1.0-beta.23 - 2026-09-12
+## [0.1.0-beta.24] - 2026-09-13
+
+### Fixed
+
+- Fix forward the unreleased beta.23 tag with the required changelog heading and aligned release metadata.
 
 ### Added
 
