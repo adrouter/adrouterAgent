@@ -778,3 +778,11 @@ CLI/Desktop now have working-source memory-only Kimi continuation using nonseria
 OpenCode now generates its catalog from Router, retaining all twelve descriptors and selecting the nine tool-qualified models. It remains text/tool-only. Catalog check, typecheck, lint, 50 tests and build passed; Kimi host-lifecycle continuation remains unfinished.
 
 Presence prompts, full authenticated cross-client matrix, browser vision acceptance, complete candidate-baseline reconciliation, packaged Desktop acceptance and successor publication remain unfinished. No candidate tags, beta/latest aliases, existing artifacts or serving API/Pages were changed. Do not publish this partial state.
+
+## Public beta.24 promotion receipt — 14 September 2026
+
+`@adrouter/agent@0.1.0-beta.24` is the approved public prerelease. Immutable tag `v0.1.0-beta.24` identifies source commit `8be645e45e45732d3b046e1fc11cfbcd47c5174f`; candidate PR #35 received an independent approval and merged to active `adrouter/adrouterAgent` as `1f168ad7182466f1d58743859e71aa4b356131ae`.
+
+The exact-tag finalization workflow passed at https://github.com/adrouter/adrouterAgent/actions/runs/34767793366, including final public smoke checks, npm promotion and GitHub prerelease verification. npm `beta` and `latest` both resolve to beta.24, `candidate` is absent, and integrity is `sha512-7/rmAya7YM5+uYRf8NYRph0ofeh0sD9scfTtbCd6tR6+A4tHi//k+1tibnw2KHn1i5SQqwiAYaFgth6jAseH6g==`.
+
+The public release contains macOS universal, Ubuntu x64 and Windows x64 portable ZIPs, their platform SBOMs, the npm launcher tarball and SBOM, artifact manifest, checksum inventory and `authentication-acceptance.json`. The recorded acceptance covers macOS 15.7.9 arm64 and Windows 11 x64 with Node.js 25.9.0 and OS-encrypted installation state.
