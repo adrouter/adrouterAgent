@@ -125,6 +125,120 @@ describe('durable agent context', () => {
     );
   }, 10_000);
 
+  it('preserves Kimi reasoning through a real tool loop without emitting it', async () => {
+    const kimiModel = bundledCatalogModels().find((model) => model.id === 'kimi-k3');
+    if (!kimiModel) throw new Error('Kimi must be in the coding catalog.');
+    const originalFetch = globalThis.fetch;
+    const requests: Record<string, unknown>[] = [];
+    globalThis.fetch = (async (_url, init) => {
+      requests.push(JSON.parse(Buffer.from(init?.body as Uint8Array).toString('utf8')));
+      const rows =
+        requests.length === 1
+          ? [
+              { type: 'thinking', content: 'private-kimi-runtime-fixture' },
+              {
+                type: 'tool_call',
+                id: 'read-1',
+                name: 'read_file',
+                arguments: { path: 'package.json' },
+              },
+              { type: 'done' },
+            ]
+          : [
+              { type: 'thinking', content: 'private-kimi-followup-fixture' },
+              { type: 'text', content: 'finished' },
+              { type: 'done' },
+            ];
+      return new Response(`${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, {
+        headers: { 'content-type': 'application/x-ndjson' },
+      });
+    }) as typeof fetch;
+    const events: RuntimeEvent[] = [];
+    const session = new DesktopAgentSession(
+      {
+        type: 'start',
+        threadId,
+        turnId,
+        project: {
+          id: '33333333-3333-4333-8333-333333333333',
+          path: process.cwd(),
+          displayName: 'fixture',
+          instructions: '',
+          repositoryInstructions: '',
+          repositoryInstructionFiles: [],
+          bundleInstructions: '',
+          taskInstructions: '',
+          trustedSkills: [],
+          promptSources: [],
+          permissionMode: 'workspace-write',
+          delegationEnabled: false,
+          capabilityPolicy: {
+            schemaVersion: 1,
+            workspaceAccess: 'workspace-write',
+            fileMutations: true,
+            generalCommands: true,
+            networkFetch: true,
+            dependencyChanges: true,
+            gitWrites: true,
+            delegation: false,
+          },
+        },
+        model: {
+          ...kimiModel,
+          configured: true,
+        },
+        thinkingLevel: 'high',
+        runtimeMode: 'mock',
+        cacheOptimizationMode: 'stats-only',
+        sponsoredCompute: true,
+        router: {
+          authMode: 'custom_bearer',
+          serverUrl: 'http://localhost:8787',
+          token: 'fixture-token',
+        },
+        input: 'Finish the task.',
+        history: [],
+        allowedCommands: [],
+      },
+      (event) => events.push(event)
+    );
+    try {
+      await session.run();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(requests).toHaveLength(2);
+    expect(JSON.stringify(requests[1])).toContain('private-kimi-runtime-fixture');
+    expect(JSON.stringify(requests[1])).toContain('read-1');
+    expect(JSON.stringify(events)).not.toContain('private-kimi');
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'turn.lifecycle',
+        payload: { status: 'completed', error: null },
+      })
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'message.complete',
+        payload: expect.objectContaining({ text: 'finished' }),
+      })
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'diagnostic',
+        payload: expect.objectContaining({
+          cacheOptimization: {
+            mode: 'stats-only',
+            eligible: false,
+            rewriteApplied: false,
+            stablePrefixBytes: expect.any(Number),
+            telemetry: 'normalized-settlement',
+          },
+        }),
+      })
+    );
+  }, 10_000);
+
   it('restores structured assistant tool calls before matching tool results', () => {
     const messages = historyToMessages([
       sessionEntry(1, 'assistant_message', {

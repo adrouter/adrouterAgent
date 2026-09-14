@@ -5,7 +5,7 @@ import type { RouterModelDescriptor } from '../contracts';
 
 export const ADROUTER_CATALOG_SCHEMA_VERSION = 2 as const;
 export const ADROUTER_CATALOG_DIGEST =
-  'sha256:6c48a4b0142dbc8a19813799c146a6bb5f828ebc3240471ce94313091b805bf3' as const;
+  'sha256:82df16507c35823aa8256f958af1e22042935399ebfd273d819459e8fe859a19' as const;
 
 export const BUNDLED_ADROUTER_MODELS: readonly RouterModelDescriptor[] = [
   {
@@ -150,6 +150,22 @@ export const BUNDLED_ADROUTER_MODELS: readonly RouterModelDescriptor[] = [
     contextWindow: 1_000_000,
     maxInputTokens: 851_968,
     maxOutputTokens: 128_000,
+    configured: false,
+  },
+  {
+    id: 'kimi-k3',
+    provider: 'moonshot',
+    modelClass: 'pro',
+    displayName: 'Kimi K3',
+    providerLabel: 'Kimi',
+    description: 'Kimi reasoning model with memory-only conversation and tool continuation.',
+    thinkingLevels: ['high'],
+    defaultThinkingLevel: 'high',
+    inputModalities: ['text', 'image'],
+    toolCalling: true,
+    contextWindow: 1_048_576,
+    maxInputTokens: 851_968,
+    maxOutputTokens: 131_072,
     configured: false,
   },
 ] as const;

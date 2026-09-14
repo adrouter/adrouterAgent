@@ -62,6 +62,12 @@ for (const forbidden of [
 }
 const promotion = readFileSync(join(workflowDirectory, 'promote-release.yml'), 'utf8');
 const packageVersion = JSON.parse(readFileSync('package.json', 'utf8')).version;
+assert.ok(
+  readFileSync('CHANGELOG.md', 'utf8')
+    .split('\n')
+    .some((line) => line.startsWith(`## [${packageVersion}]`)),
+  'current release must have the bracketed changelog heading required by tag validation'
+);
 const retiredBootstrapToken = ['NPM', 'BOOTSTRAP', 'TOKEN'].join('_');
 for (const required of [
   'npm-publish',

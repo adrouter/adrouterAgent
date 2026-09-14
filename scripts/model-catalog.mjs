@@ -42,7 +42,7 @@ const EXPECTED_CAPABILITIES = {
   'glm-5.3': [['text'], true],
   'qwen3.8-max': [['text', 'image'], true],
   'qwen3.8-flash': [['text', 'image'], true],
-  'kimi-k3': [['text', 'image'], false],
+  'kimi-k3': [['text', 'image'], true],
 };
 
 const EXPECTED_LIMITS = {
