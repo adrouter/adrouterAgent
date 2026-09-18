@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -185,23 +185,23 @@ describe('web search encrypted state', () => {
   it('leaves the previous settings readable after an atomic replacement fails', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'adrouter-web-search-'));
     directories.push(directory);
-    const store = new WebSearchStore(
-      join(directory, 'settings.json'),
-      join(directory, 'cache.json'),
-      cipher
+    const settingsPath = join(directory, 'settings.json');
+    const cachePath = join(directory, 'cache.json');
+    const seedStore = new WebSearchStore(settingsPath, cachePath, cipher);
+    await seedStore.saveCredential('openai', 'preserved-secret');
+    await seedStore.updateSettings({ enabled: true, defaultProvider: 'openai' });
+    const failingStore = new WebSearchStore(settingsPath, cachePath, cipher, {
+      rename: async () => {
+        throw new Error('simulated atomic replacement failure');
+      },
+    });
+    await expect(failingStore.saveCredential('brave', 'must-not-commit')).rejects.toThrow(
+      /simulated atomic replacement failure/
     );
-    await store.saveCredential('openai', 'preserved-secret');
-    await store.updateSettings({ enabled: true, defaultProvider: 'openai' });
-    await chmod(directory, 0o500);
-    try {
-      await expect(store.saveCredential('brave', 'must-not-commit')).rejects.toThrow();
-    } finally {
-      await chmod(directory, 0o700);
-    }
-    await expect(store.runtimeConfiguration('openai')).resolves.toMatchObject({
+    await expect(failingStore.runtimeConfiguration('openai')).resolves.toMatchObject({
       apiKey: 'preserved-secret',
     });
-    await expect(store.runtimeConfiguration('brave')).rejects.toThrow(/not configured/);
+    await expect(failingStore.runtimeConfiguration('brave')).rejects.toThrow(/not configured/);
   });
 
   it('rejects stale provider status after key replacement or deletion', async () => {

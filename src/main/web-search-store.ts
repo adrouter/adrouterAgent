@@ -49,6 +49,10 @@ export interface WebSearchCipher {
   decrypt(value: string): Promise<string>;
 }
 
+export interface WebSearchStoreFileOperations {
+  rename(from: string, to: string): Promise<void>;
+}
+
 export interface WebSearchRuntimeConfiguration {
   provider: SearchProvider;
   apiKey: string;
@@ -71,12 +75,18 @@ const CACHE_TTL_MS = 60 * 60 * 1_000;
 const MAX_CACHE_ENTRIES = 128;
 const MAX_CACHE_BYTES = 128 * 1024 * 1024;
 
-const atomicWrite = async (path: string, value: unknown): Promise<void> => {
+const nodeFileOperations: WebSearchStoreFileOperations = { rename };
+
+const atomicWrite = async (
+  path: string,
+  value: unknown,
+  fileOperations: WebSearchStoreFileOperations
+): Promise<void> => {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temporary = `${path}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, `${JSON.stringify(value)}\n`, { encoding: 'utf8', mode: 0o600 });
-    await rename(temporary, path);
+    await fileOperations.rename(temporary, path);
   } catch (error) {
     await unlink(temporary).catch(() => undefined);
     throw error;
@@ -103,7 +113,8 @@ export class WebSearchStore {
   public constructor(
     private readonly settingsPath: string,
     private readonly cachePath: string,
-    private readonly cipher: WebSearchCipher = electronCipher
+    private readonly cipher: WebSearchCipher = electronCipher,
+    private readonly fileOperations: WebSearchStoreFileOperations = nodeFileOperations
   ) {}
 
   public onInvalidation(listener: (event: WebSearchInvalidation) => void): () => void {
@@ -199,7 +210,7 @@ export class WebSearchStore {
     await this.queueSettings(async () => {
       const settings = await this.readSettings();
       if (input.enabled) await this.cipher.assertSecure();
-      await atomicWrite(this.settingsPath, { ...settings, ...input });
+      await atomicWrite(this.settingsPath, { ...settings, ...input }, this.fileOperations);
     });
     return this.getSettings();
   }
@@ -221,7 +232,7 @@ export class WebSearchStore {
       if (!settings.enabled || !settings.encryptedKeys[provider]) return;
       if (error) settings.errors[provider] = error.slice(0, 500);
       else delete settings.errors[provider];
-      await atomicWrite(this.settingsPath, settings);
+      await atomicWrite(this.settingsPath, settings, this.fileOperations);
     });
   }
 
@@ -235,7 +246,7 @@ export class WebSearchStore {
       const settings = await this.readSettings();
       settings.encryptedKeys[provider] = await this.cipher.encrypt(apiKey.trim());
       delete settings.errors[provider];
-      await atomicWrite(this.settingsPath, settings);
+      await atomicWrite(this.settingsPath, settings, this.fileOperations);
     });
     return this.getSettings();
   }
@@ -246,7 +257,7 @@ export class WebSearchStore {
       const settings = await this.readSettings();
       delete settings.encryptedKeys[provider];
       delete settings.errors[provider];
-      await atomicWrite(this.settingsPath, settings);
+      await atomicWrite(this.settingsPath, settings, this.fileOperations);
     });
     return this.getSettings();
   }
@@ -318,7 +329,7 @@ export class WebSearchStore {
       bytes -= removed.bytes;
     }
     if (entries.length !== cache.entries.length)
-      await atomicWrite(this.cachePath, { version: 1, entries });
+      await atomicWrite(this.cachePath, { version: 1, entries }, this.fileOperations);
     return { version: 1, entries };
   }
 
@@ -359,7 +370,7 @@ export class WebSearchStore {
       if (generation !== this.cacheGeneration) {
         throw new Error('The search cache was cleared before content could be stored.');
       }
-      await atomicWrite(this.cachePath, cache);
+      await atomicWrite(this.cachePath, cache, this.fileOperations);
     });
     return {
       handle: entry.handle,
