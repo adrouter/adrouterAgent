@@ -2,7 +2,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createNetworkFetchManifest, isPublicNetworkAddress } from '@/runtime/network-policy';
+import {
+  createNetworkFetchManifest,
+  createPinnedLookup,
+  isPublicNetworkAddress,
+} from '@/runtime/network-policy';
 
 const directories: string[] = [];
 
@@ -78,5 +82,25 @@ describe('structured network policy', () => {
         url: 'https://127.0.0.1/',
       })
     ).rejects.toThrow('denied');
+  });
+
+  it('supports Node single-address and all-address lookup callback contracts', async () => {
+    const pinned = createPinnedLookup('8.8.8.8');
+    await expect(
+      new Promise((resolve, reject) => {
+        pinned('example.test', {}, (error, address, family) => {
+          if (error) reject(error);
+          else resolve({ address, family });
+        });
+      })
+    ).resolves.toEqual({ address: '8.8.8.8', family: 4 });
+    await expect(
+      new Promise((resolve, reject) => {
+        pinned('example.test', { all: true }, (error, addresses) => {
+          if (error) reject(error);
+          else resolve(addresses);
+        });
+      })
+    ).resolves.toEqual([{ address: '8.8.8.8', family: 4 }]);
   });
 });

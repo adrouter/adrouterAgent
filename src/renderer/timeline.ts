@@ -1,4 +1,5 @@
 import { type JournalEvent, type Sponsor, SponsorSchema } from '../shared/contracts';
+import { RuntimeWebResultSchema } from '../shared/runtime-protocol';
 
 export interface SponsorRound {
   routerTurnId: string;
@@ -34,6 +35,14 @@ export type TimelineItem =
       status: 'running' | 'completed' | 'failed';
       toolCallId?: string;
       name?: string;
+      web?: {
+        provider: string | null;
+        progress: string;
+        excerpts: string[];
+        citations: Array<{ title: string; url: string }>;
+        errors: string[];
+        cancelled: boolean;
+      };
     })
   | (BaseTimelineItem & { kind: 'status' | 'error'; title: string; text: string });
 
@@ -61,6 +70,9 @@ const toolTitle = (name: string): string => {
     read_file: 'Read',
     run_command: 'Run command',
     search_text: 'Search',
+    web_search: 'Search the web',
+    fetch_content: 'Retrieve web content',
+    get_search_content: 'Read cached web content',
   };
   return labels[name] ?? name.replaceAll('_', ' ');
 };
@@ -190,9 +202,22 @@ export const buildTimeline = (
     if (event.type === 'tool.activity') {
       const name = typeof event.payload.name === 'string' ? event.payload.name : 'tool';
       const state = event.payload.state;
-      if (state !== 'started') continue;
       const toolCallId =
         typeof event.payload.toolCallId === 'string' ? event.payload.toolCallId : event.id;
+      if (state === 'progress') {
+        const item = tools.get(toolCallId);
+        if (!item?.web) continue;
+        const phase = typeof event.payload.phase === 'string' ? event.payload.phase : 'working';
+        const completed = numberValue(event.payload.completed);
+        const total = numberValue(event.payload.total);
+        const provider = typeof event.payload.provider === 'string' ? event.payload.provider : null;
+        item.web.provider ??= provider;
+        item.web.progress = `${phase} · ${completed}/${total}`;
+        item.web.cancelled ||= phase === 'cancelled';
+        if (typeof event.payload.error === 'string') item.web.errors.push(event.payload.error);
+        continue;
+      }
+      if (state !== 'started') continue;
       if (name === 'read_file') {
         const args =
           event.payload.args && typeof event.payload.args === 'object'
@@ -219,6 +244,18 @@ export const buildTimeline = (
         status: 'running',
         toolCallId,
         name,
+        ...(name === 'web_search' || name === 'fetch_content' || name === 'get_search_content'
+          ? {
+              web: {
+                provider: null,
+                progress: 'starting',
+                excerpts: [],
+                citations: [],
+                errors: [],
+                cancelled: false,
+              },
+            }
+          : {}),
       };
       tools.set(toolCallId, item);
       items.push(item);
@@ -253,6 +290,38 @@ export const buildTimeline = (
         item.status = event.payload.isError ? 'failed' : 'completed';
         const output = event.payload.output ?? event.payload.details;
         if (output) item.text = detailText(output);
+        if (item.web) {
+          const parsed = RuntimeWebResultSchema.safeParse(event.payload.details);
+          if (parsed.success) {
+            const value = parsed.data;
+            const content =
+              'queries' in value ? value.content : 'items' in value ? value.items : [];
+            for (const entry of content) {
+              if (entry.error) item.web.errors.push(entry.error);
+              else if ('excerpt' in entry) {
+                if (entry.excerpt) item.web.excerpts.push(entry.excerpt);
+                item.web.citations.push({ title: entry.title || entry.url, url: entry.url });
+              }
+            }
+            if ('queries' in value) {
+              for (const query of value.queries) {
+                item.web.provider ??= query.provider;
+                if (query.answer) item.web.excerpts.push(query.answer);
+                if (query.error) item.web.errors.push(`${query.query}: ${query.error}`);
+                for (const result of query.results) {
+                  if (result.snippet) item.web.excerpts.push(result.snippet);
+                  item.web.citations.push({ title: result.title || result.url, url: result.url });
+                }
+              }
+            } else if ('content' in value && typeof value.content === 'string') {
+              item.web.excerpts.push(value.content);
+              item.web.citations.push({ title: value.title || value.url, url: value.url });
+            }
+          }
+          item.web.progress = event.payload.isError ? 'failed' : 'completed';
+          item.web.cancelled ||=
+            event.payload.isError === true && /cancel/i.test(eventText(event) || item.text);
+        }
       }
       continue;
     }

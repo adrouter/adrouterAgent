@@ -4,6 +4,7 @@ import {
   INSTALLATION_AUTH_PROTOCOL_VERSION,
   MAX_SIGNED_REQUEST_BYTES,
   OPERATION_BROKER_PROTOCOL_VERSION,
+  WEB_REQUEST_PROTOCOL_VERSION,
 } from './constants';
 import {
   ApprovalDecisionSchema,
@@ -16,6 +17,8 @@ import {
   PromptSourceSchema,
   RouterModelDescriptorSchema,
   RuntimeModeSchema,
+  SearchProviderSchema,
+  SearchProviderSelectionSchema,
   SessionEntrySchema,
   TaskCapabilityPolicyV1Schema,
   ThinkingLevelSchema,
@@ -63,6 +66,7 @@ export const RuntimeStartSchema = z.object({
   history: z.array(SessionEntrySchema),
   allowedCommands: z.array(z.array(z.string().min(1)).min(1)),
 });
+export type RuntimeStart = z.infer<typeof RuntimeStartSchema>;
 
 export const RuntimeSteerSchema = z.object({ type: z.literal('steer'), input: z.string().min(1) });
 export const RuntimeQueueSchema = z.object({
@@ -211,6 +215,159 @@ export const RuntimeGuidanceResponseSchema = z.object({
 });
 export type RuntimeGuidanceResponse = z.infer<typeof RuntimeGuidanceResponseSchema>;
 
+export const RuntimeWebActionSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('search'),
+      queries: z.array(z.string().trim().min(1).max(2_000)).min(1).max(4),
+      provider: SearchProviderSelectionSchema.optional(),
+      resultCount: z.number().int().min(1).max(20).default(5),
+      includeContent: z.boolean().default(false),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('fetch-content'),
+      urls: z.array(z.string().url().max(8_192)).min(1).max(4),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('get-content'),
+      handle: IdSchema,
+      offset: z.number().int().nonnegative().optional(),
+      maxCharacters: z.number().int().min(1).max(64_000).optional(),
+    })
+    .strict(),
+]);
+export type RuntimeWebAction = z.infer<typeof RuntimeWebActionSchema>;
+
+export const RuntimeWebRequestSchema = z.object({
+  kind: z.literal('web-request'),
+  protocolVersion: z.literal(WEB_REQUEST_PROTOCOL_VERSION),
+  requestId: IdSchema,
+  threadId: IdSchema,
+  turnId: IdSchema,
+  toolCallId: z.string().min(1).max(256),
+  action: RuntimeWebActionSchema,
+});
+export type RuntimeWebRequest = z.infer<typeof RuntimeWebRequestSchema>;
+
+export const WebSearchResultItemSchema = z
+  .object({
+    title: z.string().max(500),
+    url: z
+      .string()
+      .url()
+      .max(8_192)
+      .refine((value) => value.startsWith('https:')),
+    snippet: z.string().max(2_000),
+  })
+  .strict();
+export const WebSearchQueryResultSchema = z
+  .object({
+    query: z.string().max(2_000),
+    provider: SearchProviderSchema,
+    answer: z.string().max(16_000),
+    results: z.array(WebSearchResultItemSchema).max(20),
+    error: z.string().max(500).nullable(),
+  })
+  .strict();
+export const WebContentHandleSchema = z
+  .object({
+    url: z
+      .string()
+      .url()
+      .max(8_192)
+      .refine((value) => value.startsWith('https:')),
+    title: z.string().max(500),
+    mimeType: z.string().max(200),
+    excerpt: z.string().max(4_000),
+    truncated: z.boolean(),
+    handle: IdSchema,
+    bytes: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(128 * 1024 * 1024),
+    expiresAt: z.string().datetime({ offset: true }),
+    error: z.null(),
+  })
+  .strict();
+export const WebContentFailureSchema = z
+  .object({
+    url: z.string().url().max(8_192),
+    error: z.string().min(1).max(500),
+  })
+  .strict();
+export const RuntimeWebResultSchema = z.union([
+  z
+    .object({
+      queries: z.array(WebSearchQueryResultSchema).min(1).max(4),
+      content: z.array(z.union([WebContentHandleSchema, WebContentFailureSchema])).max(4),
+    })
+    .strict(),
+  z
+    .object({
+      items: z.array(z.union([WebContentHandleSchema, WebContentFailureSchema])).max(4),
+    })
+    .strict(),
+  z
+    .object({
+      handle: IdSchema,
+      url: z
+        .string()
+        .url()
+        .max(8_192)
+        .refine((value) => value.startsWith('https:')),
+      title: z.string().max(500),
+      mimeType: z.string().max(200),
+      offset: z.number().int().nonnegative(),
+      content: z.string().max(64_000),
+      nextOffset: z.number().int().positive().nullable(),
+      totalCharacters: z.number().int().nonnegative(),
+    })
+    .strict(),
+]);
+export type RuntimeWebResult = z.infer<typeof RuntimeWebResultSchema>;
+
+export const RuntimeWebResponseSchema = z.object({
+  kind: z.literal('web-response'),
+  protocolVersion: z.literal(WEB_REQUEST_PROTOCOL_VERSION),
+  requestId: IdSchema,
+  ok: z.boolean(),
+  result: RuntimeWebResultSchema.optional(),
+  error: z.string().min(1).max(500).optional(),
+  errorCode: z
+    .enum(['cancelled', 'provider', 'policy', 'unavailable', 'invalid_request'])
+    .optional(),
+});
+export type RuntimeWebResponse = z.infer<typeof RuntimeWebResponseSchema>;
+
+export const RuntimeWebCancelSchema = z.object({
+  kind: z.literal('web-cancel'),
+  protocolVersion: z.literal(WEB_REQUEST_PROTOCOL_VERSION),
+  requestId: IdSchema,
+});
+
+export const RuntimeWebProgressSchema = z
+  .object({
+    kind: z.literal('web-progress'),
+    protocolVersion: z.literal(WEB_REQUEST_PROTOCOL_VERSION),
+    requestId: IdSchema,
+    threadId: IdSchema,
+    turnId: IdSchema,
+    toolCallId: z.string().min(1).max(256),
+    phase: z.enum(['queued', 'dispatching', 'completed', 'failed', 'cancelled']),
+    provider: SearchProviderSchema.nullable(),
+    query: z.string().max(8_192).nullable(),
+    completed: z.number().int().nonnegative().max(4),
+    total: z.number().int().min(1).max(4),
+    error: z.string().max(500).optional(),
+  })
+  .strict();
+export type RuntimeWebProgress = z.infer<typeof RuntimeWebProgressSchema>;
+
 export const RuntimePortMessageSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('request'), request: RuntimeRequestSchema }),
   z.object({ kind: z.literal('event'), event: RuntimeEventSchema }),
@@ -223,5 +380,9 @@ export const RuntimePortMessageSchema = z.discriminatedUnion('kind', [
   RuntimeOperationCancelSchema,
   RuntimeGuidanceRequestSchema,
   RuntimeGuidanceResponseSchema,
+  RuntimeWebRequestSchema,
+  RuntimeWebResponseSchema,
+  RuntimeWebCancelSchema,
+  RuntimeWebProgressSchema,
 ]);
 export type RuntimePortMessage = z.infer<typeof RuntimePortMessageSchema>;

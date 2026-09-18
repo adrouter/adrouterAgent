@@ -226,7 +226,12 @@ test('uses XDG and LocalAppData install locations for portable targets', () => {
   assert.match(windows.appPath.replaceAll('\\', '/'), /Programs\/AdRouter Agent$/);
 });
 
-function fixtureExecute({ gatekeeper = 'rejected', running = false, safeSymlink = false } = {}) {
+function fixtureExecute({
+  gatekeeper = 'rejected',
+  running = false,
+  safeSymlink = false,
+  bundleVersion = '10012',
+} = {}) {
   return async (file, args) => {
     if (file === '/usr/bin/sw_vers') return { stdout: '15.7.7\n', stderr: '' };
     if (file === '/usr/bin/unzip') {
@@ -268,7 +273,7 @@ function fixtureExecute({ gatekeeper = 'rejected', running = false, safeSymlink 
         return { stdout: 'com.adrouter.agent\n', stderr: '' };
       }
       return {
-        stdout: args[1].includes('Short') ? '0.1.0\n' : '10012\n',
+        stdout: args[1].includes('Short') ? '0.1.0\n' : `${bundleVersion}\n`,
         stderr: '',
       };
     }
@@ -502,36 +507,63 @@ test('refuses to overwrite an unmanaged Applications bundle', async () => {
   }
 });
 
-test('restores the previous managed app when activation receipt writing fails', async () => {
+test('a failed beta.24 to beta.25 upgrade restores the app and preserves user and workspace state', async () => {
   const homeDirectory = mkdtempSync(join(tmpdir(), 'adrouter-launcher-rollback-test-'));
+  const userData = join(homeDirectory, 'Library', 'Application Support', 'AdRouter Agent');
+  const workspace = join(homeDirectory, 'Projects', 'fixture');
   const firstBody = Buffer.from('first fixture zip body');
   const firstManifest = {
-    ...manifest,
+    ...JSON.parse(JSON.stringify(manifest).replaceAll('0.1.0-beta.12', '0.1.0-beta.24')),
+    bundleVersion: '10024',
     artifacts: manifest.artifacts.map((artifact) =>
       artifact.key === 'darwin-universal'
-        ? { ...artifact, sha256: createHash('sha256').update(firstBody).digest('hex') }
-        : artifact
+        ? {
+            ...artifact,
+            assetName: artifact.assetName.replace('beta.12', 'beta.24'),
+            assetUrl: artifact.assetUrl.replaceAll('beta.12', 'beta.24'),
+            sha256: createHash('sha256').update(firstBody).digest('hex'),
+          }
+        : {
+            ...artifact,
+            assetName: artifact.assetName.replace('beta.12', 'beta.24'),
+            assetUrl: artifact.assetUrl.replaceAll('beta.12', 'beta.24'),
+          }
     ),
   };
   try {
+    mkdirSync(userData, { recursive: true });
+    mkdirSync(workspace, { recursive: true });
+    writeFileSync(join(userData, 'installation.json'), 'encrypted installation material');
+    writeFileSync(join(userData, 'tasks.db'), 'persisted tasks');
+    writeFileSync(join(workspace, 'uncommitted.txt'), 'workspace change');
     const appPath = await install(firstManifest, {
       platform: 'darwin',
       arch: 'arm64',
       homeDirectory,
       uid: 501,
       fetchImpl: fixtureResponse(firstBody),
-      executeImpl: fixtureExecute(),
+      executeImpl: fixtureExecute({ bundleVersion: '10024' }),
     });
     const marker = join(appPath, 'previous-install-marker');
     writeFileSync(marker, 'preserve me');
 
     const nextBody = Buffer.from('next fixture zip body');
     const nextManifest = {
-      ...manifest,
+      ...JSON.parse(JSON.stringify(manifest).replaceAll('0.1.0-beta.12', '0.1.0-beta.25')),
+      bundleVersion: '10025',
       artifacts: manifest.artifacts.map((artifact) =>
         artifact.key === 'darwin-universal'
-          ? { ...artifact, sha256: createHash('sha256').update(nextBody).digest('hex') }
-          : artifact
+          ? {
+              ...artifact,
+              assetName: artifact.assetName.replace('beta.12', 'beta.25'),
+              assetUrl: artifact.assetUrl.replaceAll('beta.12', 'beta.25'),
+              sha256: createHash('sha256').update(nextBody).digest('hex'),
+            }
+          : {
+              ...artifact,
+              assetName: artifact.assetName.replace('beta.12', 'beta.25'),
+              assetUrl: artifact.assetUrl.replaceAll('beta.12', 'beta.25'),
+            }
       ),
     };
     await assert.rejects(
@@ -541,7 +573,7 @@ test('restores the previous managed app when activation receipt writing fails', 
         homeDirectory,
         uid: 501,
         fetchImpl: fixtureResponse(nextBody),
-        executeImpl: fixtureExecute(),
+        executeImpl: fixtureExecute({ bundleVersion: '10025' }),
         writeReceiptImpl: async () => {
           throw new Error('receipt failure');
         },
@@ -549,6 +581,12 @@ test('restores the previous managed app when activation receipt writing fails', 
       /receipt failure/
     );
     assert.equal(existsSync(marker), true);
+    assert.equal(
+      readFileSync(join(userData, 'installation.json'), 'utf8'),
+      'encrypted installation material'
+    );
+    assert.equal(readFileSync(join(userData, 'tasks.db'), 'utf8'), 'persisted tasks');
+    assert.equal(readFileSync(join(workspace, 'uncommitted.txt'), 'utf8'), 'workspace change');
   } finally {
     rmSync(homeDirectory, { recursive: true, force: true });
   }

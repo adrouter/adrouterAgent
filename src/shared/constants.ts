@@ -13,6 +13,7 @@ export const DESKTOP_CLIENT_KIND = 'desktop' as const;
 export const INSTALLATION_AUTH_PROTOCOL_VERSION = 1 as const;
 export const OPERATION_BROKER_PROTOCOL_VERSION = 1 as const;
 export const GUIDANCE_PROTOCOL_VERSION = 1 as const;
+export const WEB_REQUEST_PROTOCOL_VERSION = 1 as const;
 export const LOCAL_RPC_PROTOCOL_VERSION = 1 as const;
 export const MAX_LOCAL_RPC_FRAME_BYTES = 1024 * 1024;
 export const MAX_SIGNED_REQUEST_BYTES = 2 * 1024 * 1024;

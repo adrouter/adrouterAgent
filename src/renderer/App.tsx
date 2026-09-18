@@ -33,6 +33,7 @@ import type {
   RouterConfiguration,
   RouterDiagnostics,
   RouterModelDescriptor,
+  SearchProvider,
   SessionImportPreview,
   Sponsor,
   TaskCapabilityPolicyV1,
@@ -40,6 +41,7 @@ import type {
   TaskPresetV1,
   ThinkingLevel,
   Thread,
+  WebSearchSettings,
 } from '../shared/contracts';
 import { RouterModelDescriptorSchema } from '../shared/contracts';
 import { buildChangedLineDiff } from './line-diff';
@@ -1982,6 +1984,10 @@ export function App(): JSX.Element {
                   )}
                 </div>
               </details>
+              <details className="project-controls settings-disclosure" aria-label="Web Search">
+                <summary>Web Search</summary>
+                <WebSearchSettingsPanel onError={setError} />
+              </details>
               <details
                 className="project-controls settings-disclosure"
                 aria-label="Delegated child tasks"
@@ -2622,6 +2628,50 @@ function TimelineEntry({ item }: { item: TimelineItem }): JSX.Element {
     );
   }
   if (item.kind === 'tool') {
+    if (item.web) {
+      const citations = [
+        ...new Map(item.web.citations.map((citation) => [citation.url, citation])).values(),
+      ];
+      const excerpts = [...new Set(item.web.excerpts)].slice(0, 8);
+      const errors = [...new Set(item.web.errors)].slice(0, 4);
+      return (
+        <details
+          className="timeline-item tool-message web-tool-message"
+          open={item.status === 'running'}
+        >
+          <summary>
+            {item.title} <small>{item.web.cancelled ? 'cancelled' : item.status}</small>
+          </summary>
+          <div className="web-tool-content">
+            <small>
+              {item.web.provider ? `${item.web.provider} · ` : ''}
+              {item.web.progress}
+            </small>
+            {excerpts.map((excerpt) => (
+              <p key={`${item.id}-excerpt-${excerpt}`}>{excerpt.slice(0, 2_000)}</p>
+            ))}
+            {errors.length > 0 && (
+              <ul className="web-tool-errors">
+                {errors.map((error) => (
+                  <li key={`${item.id}-error-${error}`}>{error}</li>
+                ))}
+              </ul>
+            )}
+            {citations.length > 0 && (
+              <ul className="web-tool-citations">
+                {citations.slice(0, 24).map((citation) => (
+                  <li key={citation.url}>
+                    <a href={citation.url} target="_blank" rel="noreferrer noopener">
+                      {citation.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </details>
+      );
+    }
     return (
       <details className="timeline-item tool-message">
         <summary>
@@ -2752,6 +2802,198 @@ const presetDraft = (
         extraInstructions: '',
         capabilityPolicy: defaultPresetPolicy(project),
       };
+
+const SEARCH_PROVIDER_LABELS: Record<SearchProvider, string> = {
+  openai: 'OpenAI',
+  exa: 'Exa',
+  brave: 'Brave',
+  parallel: 'Parallel',
+  tavily: 'Tavily',
+  perplexity: 'Perplexity',
+  gemini: 'Gemini',
+};
+
+export function WebSearchSettingsPanel({
+  onError,
+}: {
+  onError: (message: string | undefined) => void;
+}): JSX.Element {
+  const [settings, setSettings] = useState<WebSearchSettings>();
+  const [drafts, setDrafts] = useState<Partial<Record<SearchProvider, string>>>({});
+  const [busyProvider, setBusyProvider] = useState<SearchProvider | 'settings' | 'cache'>();
+
+  const refresh = useCallback(async () => {
+    setSettings(await window.adrouter.search.getSettings());
+  }, []);
+
+  useEffect(() => {
+    void refresh().catch((caught) => onError(errorMessage(caught)));
+  }, [onError, refresh]);
+
+  const updateSettings = async (input: {
+    enabled: boolean;
+    defaultProvider: WebSearchSettings['defaultProvider'];
+  }): Promise<void> => {
+    setBusyProvider('settings');
+    onError(undefined);
+    try {
+      setSettings(await window.adrouter.search.updateSettings(input));
+    } catch (caught) {
+      onError(errorMessage(caught));
+    } finally {
+      setBusyProvider(undefined);
+    }
+  };
+
+  const saveCredential = async (provider: SearchProvider): Promise<void> => {
+    const apiKey = drafts[provider]?.trim();
+    if (!apiKey) return;
+    setBusyProvider(provider);
+    setDrafts((current) => ({ ...current, [provider]: '' }));
+    onError(undefined);
+    try {
+      setSettings(await window.adrouter.search.saveCredential({ provider, apiKey }));
+    } catch (caught) {
+      onError(errorMessage(caught));
+    } finally {
+      setBusyProvider(undefined);
+    }
+  };
+
+  const deleteCredential = async (provider: SearchProvider): Promise<void> => {
+    setBusyProvider(provider);
+    onError(undefined);
+    try {
+      setSettings(await window.adrouter.search.deleteCredential({ provider }));
+      setDrafts((current) => ({ ...current, [provider]: '' }));
+    } catch (caught) {
+      onError(errorMessage(caught));
+    } finally {
+      setBusyProvider(undefined);
+    }
+  };
+
+  if (!settings) {
+    return (
+      <div className="settings-disclosure-content">
+        <small>Loading search settings…</small>
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-disclosure-content web-search-settings">
+      <small>
+        Search is off by default. Requests use your selected provider account and may incur that
+        provider&apos;s charges. API keys are encrypted by the operating system and are never shown
+        again or sent to the agent runtime.
+      </small>
+      <label className="toggle-row">
+        <input
+          type="checkbox"
+          checked={settings.enabled}
+          disabled={Boolean(busyProvider)}
+          onChange={(event) =>
+            void updateSettings({
+              enabled: event.target.checked,
+              defaultProvider: settings.defaultProvider,
+            })
+          }
+        />
+        <span>
+          <strong>Enable native web search</strong>
+          <small>Only tasks whose fixed policy permits network fetches can use it.</small>
+        </span>
+      </label>
+      <label htmlFor="search-default-provider">Default provider</label>
+      <select
+        id="search-default-provider"
+        value={settings.defaultProvider}
+        disabled={Boolean(busyProvider)}
+        onChange={(event) =>
+          void updateSettings({
+            enabled: settings.enabled,
+            defaultProvider: event.target.value as WebSearchSettings['defaultProvider'],
+          })
+        }
+      >
+        <option value="auto">Automatic (first configured)</option>
+        {settings.providers.map(({ provider }) => (
+          <option key={provider} value={provider}>
+            {SEARCH_PROVIDER_LABELS[provider]}
+          </option>
+        ))}
+      </select>
+      {settings.providers.map(({ provider, configured, error }) => (
+        <section className="search-provider-row" key={provider}>
+          <div>
+            <strong>{SEARCH_PROVIDER_LABELS[provider]}</strong>
+            <small>
+              {configured ? 'Configured' : 'Not configured'}
+              {error ? ` · ${error}` : ''}
+            </small>
+          </div>
+          <input
+            aria-label={`${SEARCH_PROVIDER_LABELS[provider]} API key`}
+            type="password"
+            autoComplete="off"
+            placeholder={configured ? 'Enter replacement key' : 'Enter API key'}
+            value={drafts[provider] ?? ''}
+            disabled={busyProvider === provider}
+            onChange={(event) =>
+              setDrafts((current) => ({ ...current, [provider]: event.target.value }))
+            }
+          />
+          <div className="inline-controls">
+            <button
+              className="primary-button"
+              type="button"
+              disabled={!drafts[provider]?.trim() || Boolean(busyProvider)}
+              onClick={() => void saveCredential(provider)}
+            >
+              {configured ? 'Replace' : 'Save'}
+            </button>
+            {configured && (
+              <button
+                className="danger-outline-button"
+                type="button"
+                disabled={Boolean(busyProvider)}
+                onClick={() => void deleteCredential(provider)}
+              >
+                Delete
+              </button>
+            )}
+          </div>
+        </section>
+      ))}
+      <div className="toggle-row">
+        <span>
+          <strong>Encrypted page cache</strong>
+          <small>
+            {settings.cacheEntries} entries · {settings.cacheBytes.toLocaleString()} bytes
+          </small>
+        </span>
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={Boolean(busyProvider)}
+          onClick={() => {
+            setBusyProvider('cache');
+            void window.adrouter.search
+              .clearCache()
+              .then(refresh)
+              .catch((caught) => {
+                onError(errorMessage(caught));
+              })
+              .finally(() => setBusyProvider(undefined));
+          }}
+        >
+          Clear search cache
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function PresetSettings({
   presets,

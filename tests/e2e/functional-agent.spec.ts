@@ -18,6 +18,7 @@ test.describe('packaged functional agent', () => {
     await writeFile(join(workspace, 'status.txt'), original);
     const expectedBeforeHash = createHash('sha256').update(original).digest('hex');
     let agentTurns = 0;
+    let webTurns = 0;
 
     const server = createServer((request, response) => {
       if (request.url === '/health') {
@@ -65,11 +66,44 @@ test.describe('packaged functional agent', () => {
             .end('{"error":"invalid context"}');
           return;
         }
-        agentTurns += 1;
+        const serializedBody = JSON.stringify(body);
         response.writeHead(200, { 'content-type': 'application/x-ndjson' });
         const send = (event: unknown): void => {
           response.write(`${JSON.stringify(event)}\n`);
         };
+        if (serializedBody.includes('Use the native search fixture')) {
+          webTurns += 1;
+          if (webTurns === 1) {
+            send({
+              type: 'tool_call',
+              tool_call: {
+                id: 'web-search-1',
+                name: 'web_search',
+                arguments: {
+                  query: 'AdRouter fixture',
+                  provider: 'openai',
+                  resultCount: 5,
+                  includeContent: false,
+                },
+              },
+            });
+          } else if (webTurns === 2) {
+            send({
+              type: 'tool_call',
+              tool_call: {
+                id: 'web-fetch-1',
+                name: 'fetch_content',
+                arguments: { urls: ['https://example.com/adrouter-native-search-fixture'] },
+              },
+            });
+          } else {
+            send({ type: 'text', content: 'Native search and readable retrieval completed.' });
+          }
+          send({ type: 'done' });
+          response.end();
+          return;
+        }
+        agentTurns += 1;
         if (agentTurns === 5) {
           send({ type: 'text', content: 'Partial response before disconnect.' });
           response.end();
@@ -158,6 +192,7 @@ test.describe('packaged functional agent', () => {
       env: {
         ...process.env,
         ADROUTER_E2E_BUILD: '1',
+        ADROUTER_E2E_WEB_FIXTURE: '1',
         ADROUTER_E2E_WORKSPACE: workspace,
         ADROUTER_E2E_TOKEN: 'fixture-token',
       },
@@ -171,6 +206,20 @@ test.describe('packaged functional agent', () => {
       await expect(page.getByRole('button', { name: 'Choose folder' })).toBeVisible();
       await page.getByRole('button', { name: 'Choose folder' }).click();
       await expect(page.getByLabel('Current project')).toHaveValue(/.+/);
+      await page.getByRole('button', { name: 'Settings' }).click();
+      const webSettings = page.getByLabel('Web Search');
+      await webSettings.getByText('Web Search', { exact: true }).click();
+      const openAiKey = webSettings.getByLabel('OpenAI API key');
+      const openAiSettings = openAiKey.locator('..');
+      await openAiKey.fill('fixture-openai-key');
+      await openAiSettings.getByRole('button', { name: 'Save' }).click();
+      await expect(webSettings.getByText('Configured', { exact: true })).toBeVisible();
+      const searchEnabled = webSettings.getByRole('checkbox', {
+        name: /Enable native web search/,
+      });
+      await searchEnabled.click();
+      await expect(searchEnabled).toBeChecked();
+      await page.getByRole('button', { name: 'Close' }).click();
       await page
         .getByLabel('Task message')
         .fill('Update the fixture status and verify the workspace.');
@@ -251,6 +300,37 @@ test.describe('packaged functional agent', () => {
       await expect(
         page.getByText('The approved edit and verification command completed.')
       ).toHaveCount(0);
+      const webPrompt = 'Use the native search fixture and retrieve its cited page.';
+      await page.getByLabel('Task message').fill(webPrompt);
+      await page.getByRole('button', { name: 'Send' }).click();
+      await expect(page.getByText('Native search and readable retrieval completed.')).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(page.getByLabel('Agent activity timeline')).toContainText('Fixture citation');
+      const fixtureCitation = page
+        .locator('.web-tool-citations a[href="https://example.com/adrouter-native-search-fixture"]')
+        .filter({ hasText: 'Fixture citation' })
+        .first();
+      await fixtureCitation.locator('xpath=ancestor::details[1]/summary').click();
+      await expect(fixtureCitation).toBeVisible();
+      await expect(fixtureCitation).toContainText('Fixture citation');
+      const fixtureContent = page.getByText('Fixture readable content.', { exact: true });
+      await fixtureContent.locator('xpath=ancestor::details[1]/summary').click();
+      await expect(fixtureContent).toBeVisible();
+      expect(webTurns).toBe(3);
+      await page.getByRole('button', { name: 'New Chat' }).click();
+      await page.getByRole('button', { name: 'History' }).click();
+      await page.getByRole('button', { name: webPrompt, exact: true }).click();
+      await fixtureCitation.locator('xpath=ancestor::details[1]/summary').click();
+      await expect(fixtureCitation).toBeVisible();
+      await page.getByRole('button', { name: 'Settings' }).click();
+      await webSettings.getByText('Web Search', { exact: true }).click();
+      await searchEnabled.click();
+      await expect(searchEnabled).not.toBeChecked();
+      await openAiSettings.getByRole('button', { name: 'Delete' }).click();
+      await expect(webSettings.getByText('Not configured', { exact: true }).first()).toBeVisible();
+      await page.getByRole('button', { name: 'Close' }).click();
+      await page.getByRole('button', { name: 'New Chat' }).click();
       await page.getByLabel('Task message').fill('Check the interrupted fixture.');
       await page.getByRole('button', { name: 'Send' }).click();
       await expect(

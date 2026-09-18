@@ -3,6 +3,7 @@ import {
   GUIDANCE_PROTOCOL_VERSION,
   INSTALLATION_AUTH_PROTOCOL_VERSION,
   OPERATION_BROKER_PROTOCOL_VERSION,
+  WEB_REQUEST_PROTOCOL_VERSION,
 } from '../shared/constants';
 import type { OperationManifestV1 } from '../shared/contracts';
 import {
@@ -12,12 +13,16 @@ import {
   type RuntimeOperationResponse,
   RuntimePortMessageSchema,
   RuntimeRequestSchema,
+  type RuntimeWebAction,
+  type RuntimeWebProgress,
+  type RuntimeWebResponse,
 } from '../shared/runtime-protocol';
 import { createId, now } from '../shared/security';
 import { DesktopAgentSession } from './agent-session';
 import type { ProtectedRouterHeaders, ProtectedRouterRequest } from './router-client';
 
 let session: DesktopAgentSession | undefined;
+let runStarted = false;
 const pendingAuth = new Map<
   string,
   {
@@ -42,8 +47,39 @@ const pendingGuidance = new Map<
     cleanup: () => void;
   }
 >();
+const pendingWeb = new Map<
+  string,
+  {
+    resolve: (result: Record<string, unknown>) => void;
+    reject: (error: Error) => void;
+    cleanup: () => void;
+  }
+>();
 const emit = (event: RuntimeEvent): void => {
   parentPort.postMessage({ kind: 'event', event });
+};
+
+const rejectPending = (reason: string): void => {
+  for (const pending of pendingAuth.values()) {
+    pending.cleanup();
+    pending.reject(new Error(reason));
+  }
+  pendingAuth.clear();
+  for (const pending of pendingOperations.values()) {
+    pending.cleanup();
+    pending.reject(new Error(reason));
+  }
+  pendingOperations.clear();
+  for (const pending of pendingGuidance.values()) {
+    pending.cleanup();
+    pending.reject(new Error(reason));
+  }
+  pendingGuidance.clear();
+  for (const pending of pendingWeb.values()) {
+    pending.cleanup();
+    pending.reject(new Error(reason));
+  }
+  pendingWeb.clear();
 };
 
 const crash = (error: unknown): void => {
@@ -200,21 +236,111 @@ const resolveGuidance = (response: RuntimeGuidanceResponse): void => {
   pending.resolve(response.content);
 };
 
+const requestWeb = (
+  threadId: string,
+  turnId: string,
+  action: RuntimeWebAction,
+  signal: AbortSignal | undefined,
+  toolCallId: string
+): Promise<Record<string, unknown>> => {
+  if (signal?.aborted) return Promise.reject(signal.reason);
+  const requestId = createId();
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      parentPort.postMessage({
+        kind: 'web-cancel',
+        protocolVersion: WEB_REQUEST_PROTOCOL_VERSION,
+        requestId,
+      });
+      pendingWeb.delete(requestId);
+      cleanup();
+      reject(new Error('The web request timed out.'));
+    }, 35_000);
+    timeout.unref();
+    const onAbort = (): void => {
+      parentPort.postMessage({
+        kind: 'web-cancel',
+        protocolVersion: WEB_REQUEST_PROTOCOL_VERSION,
+        requestId,
+      });
+      pendingWeb.delete(requestId);
+      cleanup();
+      reject(new Error('The web request was cancelled.'));
+    };
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', onAbort);
+    };
+    pendingWeb.set(requestId, { resolve, reject, cleanup });
+    signal?.addEventListener('abort', onAbort, { once: true });
+    parentPort.postMessage({
+      kind: 'web-request',
+      protocolVersion: WEB_REQUEST_PROTOCOL_VERSION,
+      requestId,
+      threadId,
+      turnId,
+      toolCallId,
+      action,
+    });
+  });
+};
+
+const resolveWeb = (response: RuntimeWebResponse): void => {
+  const pending = pendingWeb.get(response.requestId);
+  if (!pending) return;
+  pendingWeb.delete(response.requestId);
+  pending.cleanup();
+  if (!response.ok || !response.result) {
+    pending.reject(new Error(response.error ?? 'The web request failed.'));
+    return;
+  }
+  pending.resolve(response.result);
+};
+
+const forwardWebProgress = (progress: RuntimeWebProgress): void => {
+  emit({
+    type: 'tool.activity',
+    turnId: progress.turnId,
+    timestamp: now(),
+    payload: {
+      recordKind: 'web-progress',
+      state: 'progress',
+      requestId: progress.requestId,
+      toolCallId: progress.toolCallId,
+      phase: progress.phase,
+      provider: progress.provider,
+      query: progress.query,
+      completed: progress.completed,
+      total: progress.total,
+      ...(progress.error ? { error: progress.error } : {}),
+    },
+  });
+};
+
 const handleRequest = async (raw: unknown): Promise<void> => {
   const request = RuntimeRequestSchema.parse(raw);
   switch (request.type) {
     case 'start':
-      if (session) {
+      if (session || runStarted) {
         throw new Error('The utility process already owns an active run.');
       }
+      runStarted = true;
       session = new DesktopAgentSession(
         request,
         emit,
         requestProtectedHeaders,
         requestOperation,
-        requestGuidance
+        requestGuidance,
+        (action, signal, toolCallId) =>
+          requestWeb(request.threadId, request.turnId, action, signal, toolCallId)
       );
-      void session.run().catch(crash);
+      void session
+        .run()
+        .catch(crash)
+        .finally(() => {
+          rejectPending('The agent runtime ended before the broker request completed.');
+          session = undefined;
+        });
       return;
     case 'presence-ack':
       session?.acknowledgePresence(request.taskId, request.promptId);
@@ -253,6 +379,14 @@ parentPort.on('message', (event) => {
   }
   if (parsed.data.kind === 'guidance-response') {
     resolveGuidance(parsed.data);
+    return;
+  }
+  if (parsed.data.kind === 'web-response') {
+    resolveWeb(parsed.data);
+    return;
+  }
+  if (parsed.data.kind === 'web-progress') {
+    forwardWebProgress(parsed.data);
     return;
   }
   if (parsed.data.kind !== 'request') return;

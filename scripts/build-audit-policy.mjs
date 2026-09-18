@@ -8,7 +8,8 @@ const PATCHED_EXTRACT_ADVISORIES = new Set([
   'https://github.com/advisories/GHSA-jmr9-qjv8-65gv',
   'https://github.com/advisories/GHSA-7pqw-9j4j-h8q3',
 ]);
-const PRODUCTION_BRACE_PATH = 'node_modules/brace-expansion';
+const PRODUCTION_BRACE_PATH =
+  'node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion';
 const PRODUCTION_UNDICI_PATH = 'node_modules/@earendil-works/pi-coding-agent/node_modules/undici';
 
 function fail(message) {

@@ -195,7 +195,7 @@ const config: ForgeConfig = {
     beforeCopyExtraResources: [hardenMacInfoPlistHook],
     appBundleId: 'com.adrouter.agent',
     appVersion: '0.1.0',
-    buildVersion: '10024',
+    buildVersion: '10025',
     appCategoryType: 'public.app-category.developer-tools',
     appCopyright: 'Copyright 2026 AdRouter Agent contributors',
     extraResource: ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'PRIVACY.md'],
@@ -245,7 +245,7 @@ const config: ForgeConfig = {
     new VitePlugin({
       build: [
         {
-          entry: 'src/main/index.ts',
+          entry: enableInspectorForE2E ? 'src/main/e2e-main.ts' : 'src/main/index.ts',
           config: 'vite.main.config.ts',
         },
         {

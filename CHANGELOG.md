@@ -1,3 +1,31 @@
+# Changelog
+
+All notable changes to AdRouter Agent are documented here.
+
+## [0.1.0-beta.25] - 2026-09-18
+
+### Added
+
+- Add opt-in native web search across OpenAI, Exa, Brave, Parallel, Tavily, Perplexity, and Gemini,
+  with encrypted provider credentials, task-owned readable-content handles, bounded citations, and
+  provider progress in the tool timeline.
+- Add cancellation-safe DNS pinning, independently bounded encoded and decoded page retrieval, and
+  a shared two-request network concurrency limit.
+
+### Changed
+
+- Update the pinned Pi runtime to 0.85.1 while retaining the app-owned provider, tool allowlist,
+  approval boundary, Desktop compaction, and no-replay policy.
+- Serialize web settings and content-cache mutations with generation checks so stale work cannot
+  restore deleted credentials, enablement, provider status, or cleared content.
+
+### Fixed
+
+- Centralize Pi session teardown and prevent tools, steering, follow-ups, and asynchronous callbacks
+  from dispatching after completion or cancellation.
+- Restore packaged Electron automation without enabling inspector access in production packages.
+- Correct upstream source provenance to the exact commits recorded by the CLI integration ledger.
+
 ## [0.1.0-beta.24] - 2026-09-13
 
 ### Fixed
@@ -7,10 +35,6 @@
 ### Added
 
 - Enable Kimi K3 coding with memory-only tool continuation and preserved runtime approvals and presence checks.
-
-# Changelog
-
-All notable changes to AdRouter Agent are documented here.
 
 ## [0.1.0-beta.22] - 2026-09-12
 

@@ -4,9 +4,11 @@ import type {
   ApprovalDecision,
   OperationManifestV1,
   PermissionMode,
+  SearchProviderSelection,
   TaskCapabilityPolicyV1,
   TrustedSkillIndex,
 } from '../shared/contracts';
+import type { RuntimeWebAction } from '../shared/runtime-protocol';
 import { createId, now } from '../shared/security';
 import { effectiveTaskCapabilityPolicy, fullTaskCapabilityPolicy } from '../shared/task-policy';
 import { approvalAllowsCommand, classifyCommand } from './command-policy';
@@ -69,6 +71,11 @@ export interface DesktopToolOptions {
   capabilityPolicy?: TaskCapabilityPolicyV1;
   trustedSkills?: TrustedSkillIndex[];
   loadGuidance?: (id: string, digest: string) => Promise<string>;
+  executeWeb?: (
+    action: RuntimeWebAction,
+    signal: AbortSignal | undefined,
+    toolCallId: string
+  ) => Promise<Record<string, unknown>>;
   executeOperation?: (
     manifest: OperationManifestV1,
     signal?: AbortSignal
@@ -634,6 +641,115 @@ export const createDesktopTools = (options: DesktopToolOptions): AgentTool[] => 
     },
   };
 
+  const webSearch: AgentTool = {
+    name: 'web_search',
+    label: 'Search the web',
+    description:
+      'Search one or up to four queries through the configured native provider. Uses the selected provider account and may incur provider charges.',
+    parameters: Type.Object({
+      query: Type.Union([
+        Type.String({ minLength: 1, maxLength: 2_000 }),
+        Type.Array(Type.String({ minLength: 1, maxLength: 2_000 }), {
+          minItems: 1,
+          maxItems: 4,
+        }),
+      ]),
+      provider: Type.Optional(
+        Type.Union([
+          Type.Literal('auto'),
+          Type.Literal('openai'),
+          Type.Literal('exa'),
+          Type.Literal('brave'),
+          Type.Literal('parallel'),
+          Type.Literal('tavily'),
+          Type.Literal('perplexity'),
+          Type.Literal('gemini'),
+        ])
+      ),
+      resultCount: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+      includeContent: Type.Optional(Type.Boolean()),
+    }),
+    executionMode: 'sequential',
+    execute: async (toolCallId, params, signal) => {
+      if (!options.executeWeb) return errorContent('Native web search is unavailable.');
+      const input = params as {
+        query: string | string[];
+        provider?: SearchProviderSelection;
+        resultCount?: number;
+        includeContent?: boolean;
+      };
+      try {
+        const result = await options.executeWeb(
+          {
+            type: 'search',
+            queries: Array.isArray(input.query) ? input.query : [input.query],
+            provider: input.provider as Extract<RuntimeWebAction, { type: 'search' }>['provider'],
+            resultCount: input.resultCount ?? 5,
+            includeContent: input.includeContent ?? false,
+          },
+          signal,
+          toolCallId
+        );
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], details: result };
+      } catch (error) {
+        return errorContent(error instanceof Error ? error.message : String(error));
+      }
+    },
+  };
+
+  const fetchContent: AgentTool = {
+    name: 'fetch_content',
+    label: 'Retrieve readable web content',
+    description:
+      'Retrieve and extract readable HTML, Markdown, or text from up to four public HTTPS URLs without forwarding provider credentials.',
+    parameters: Type.Object({
+      urls: Type.Array(Type.String({ minLength: 1, maxLength: 8_192 }), {
+        minItems: 1,
+        maxItems: 4,
+      }),
+    }),
+    executionMode: 'sequential',
+    execute: async (toolCallId, params, signal) => {
+      if (!options.executeWeb) return errorContent('Native web retrieval is unavailable.');
+      try {
+        const result = await options.executeWeb(
+          { type: 'fetch-content', urls: (params as { urls: string[] }).urls },
+          signal,
+          toolCallId
+        );
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], details: result };
+      } catch (error) {
+        return errorContent(error instanceof Error ? error.message : String(error));
+      }
+    },
+  };
+
+  const getSearchContent: AgentTool = {
+    name: 'get_search_content',
+    label: 'Read cached search content',
+    description: 'Read one bounded chunk from a task-owned encrypted web-content cache handle.',
+    parameters: Type.Object({
+      handle: Type.String({ minLength: 36, maxLength: 36 }),
+      offset: Type.Optional(Type.Integer({ minimum: 0 })),
+      maxCharacters: Type.Optional(Type.Integer({ minimum: 1, maximum: 64_000 })),
+    }),
+    executionMode: 'sequential',
+    execute: async (toolCallId, params, signal) => {
+      if (!options.executeWeb) return errorContent('Native web retrieval is unavailable.');
+      try {
+        const input = params as { handle: string; offset?: number; maxCharacters?: number };
+        const result = await options.executeWeb(
+          { type: 'get-content', ...input },
+          signal,
+          toolCallId
+        );
+        return { content: [{ type: 'text', text: JSON.stringify(result) }], details: result };
+      } catch (error) {
+        return errorContent(error instanceof Error ? error.message : String(error));
+      }
+    },
+  };
+
   const scriptTool = (name: 'run_project_script' | 'run_lifecycle_script'): AgentTool => ({
     name,
     label: name === 'run_project_script' ? 'Run reviewed project script' : 'Run lifecycle script',
@@ -1150,6 +1266,9 @@ export const createDesktopTools = (options: DesktopToolOptions): AgentTool[] => 
         ]
       : []),
     ...(capabilities.networkFetch ? [fetchUrl] : []),
+    ...(capabilities.networkFetch && options.executeWeb
+      ? [webSearch, fetchContent, getSearchContent]
+      : []),
     ...(capabilities.dependencyChanges ? [previewDependency, applyDependency] : []),
     ...(capabilities.generalCommands ? [scriptTool('run_project_script')] : []),
     ...(capabilities.dependencyChanges ? [scriptTool('run_lifecycle_script')] : []),

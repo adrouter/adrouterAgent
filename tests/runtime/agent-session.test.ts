@@ -3,19 +3,63 @@ import { describe, expect, it } from 'vitest';
 import {
   compactMessages,
   DesktopAgentSession,
+  desktopPiSessionSettings,
   historyToMessages,
   normalizeAssistantContent,
   toAgentThinkingLevel,
 } from '@/runtime/agent-session';
 import type { SessionEntry } from '@/shared/contracts';
 import { bundledCatalogModels } from '@/shared/model-catalog';
-import type { RuntimeEvent } from '@/shared/runtime-protocol';
+import type { RuntimeEvent, RuntimeStart } from '@/shared/runtime-protocol';
 
 const threadId = '11111111-1111-4111-8111-111111111111';
 const turnId = '22222222-2222-4222-8222-222222222222';
 const timestamp = '2026-07-11T12:00:00.000Z';
 const canonicalModel = bundledCatalogModels()[0];
 if (!canonicalModel) throw new Error('Expected the bundled catalog to contain a model.');
+
+const runtimeStart = (): RuntimeStart => ({
+  type: 'start',
+  threadId,
+  turnId,
+  project: {
+    id: '33333333-3333-4333-8333-333333333333',
+    path: process.cwd(),
+    displayName: 'fixture',
+    instructions: '',
+    repositoryInstructions: '',
+    repositoryInstructionFiles: [],
+    bundleInstructions: '',
+    taskInstructions: '',
+    trustedSkills: [],
+    promptSources: [],
+    permissionMode: 'workspace-write',
+    delegationEnabled: false,
+    capabilityPolicy: {
+      schemaVersion: 1,
+      workspaceAccess: 'workspace-write',
+      fileMutations: true,
+      generalCommands: true,
+      networkFetch: true,
+      dependencyChanges: true,
+      gitWrites: true,
+      delegation: false,
+    },
+  },
+  model: { ...canonicalModel, configured: true },
+  thinkingLevel: 'medium',
+  runtimeMode: 'mock',
+  cacheOptimizationMode: 'stats-only',
+  sponsoredCompute: true,
+  router: {
+    authMode: 'custom_bearer',
+    serverUrl: 'http://localhost:8787',
+    token: 'fixture-token',
+  },
+  input: 'Finish the task.',
+  history: [],
+  allowedCommands: [],
+});
 
 const sessionEntry = (
   ordinal: number,
@@ -39,6 +83,15 @@ describe('durable agent context', () => {
     expect(toAgentThinkingLevel('high')).toBe('high');
   });
 
+  it('disables Pi automatic retry and compaction in favor of Desktop-owned policy', () => {
+    expect(desktopPiSessionSettings()).toMatchObject({
+      steeringMode: 'one-at-a-time',
+      followUpMode: 'one-at-a-time',
+      retry: { enabled: false },
+      compaction: { enabled: false },
+    });
+  });
+
   it('runs the shared in-memory AgentSession to a terminal response', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () =>
@@ -47,51 +100,7 @@ describe('durable agent context', () => {
         headers: { 'content-type': 'application/x-ndjson' },
       })) as typeof fetch;
     const events: RuntimeEvent[] = [];
-    const session = new DesktopAgentSession(
-      {
-        type: 'start',
-        threadId,
-        turnId,
-        project: {
-          id: '33333333-3333-4333-8333-333333333333',
-          path: process.cwd(),
-          displayName: 'fixture',
-          instructions: '',
-          repositoryInstructions: '',
-          repositoryInstructionFiles: [],
-          bundleInstructions: '',
-          taskInstructions: '',
-          trustedSkills: [],
-          promptSources: [],
-          permissionMode: 'workspace-write',
-          delegationEnabled: false,
-          capabilityPolicy: {
-            schemaVersion: 1,
-            workspaceAccess: 'workspace-write',
-            fileMutations: true,
-            generalCommands: true,
-            networkFetch: true,
-            dependencyChanges: true,
-            gitWrites: true,
-            delegation: false,
-          },
-        },
-        model: { ...canonicalModel, configured: true },
-        thinkingLevel: 'medium',
-        runtimeMode: 'mock',
-        cacheOptimizationMode: 'stats-only',
-        sponsoredCompute: true,
-        router: {
-          authMode: 'custom_bearer',
-          serverUrl: 'http://localhost:8787',
-          token: 'fixture-token',
-        },
-        input: 'Finish the task.',
-        history: [],
-        allowedCommands: [],
-      },
-      (event) => events.push(event)
-    );
+    const session = new DesktopAgentSession(runtimeStart(), (event) => events.push(event));
     try {
       await session.run();
     } finally {
@@ -124,6 +133,31 @@ describe('durable agent context', () => {
       })
     );
   }, 10_000);
+
+  it('makes repeated pre-dispatch teardown idempotent and emits one terminal event last', async () => {
+    const originalFetch = globalThis.fetch;
+    let requests = 0;
+    globalThis.fetch = (async () => {
+      requests += 1;
+      return new Response('');
+    }) as typeof fetch;
+    const events: RuntimeEvent[] = [];
+    const session = new DesktopAgentSession(runtimeStart(), (event) => events.push(event));
+    session.stop();
+    session.stop();
+    try {
+      await session.run();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(requests).toBe(0);
+    expect(events.filter((event) => event.type === 'turn.lifecycle')).toEqual([
+      expect.objectContaining({ payload: { status: 'cancelled', error: null } }),
+    ]);
+    expect(events.at(-1)?.type).toBe('turn.lifecycle');
+    expect(() => session.queueFollowUp('must not run')).toThrow(/cancelled/);
+    expect(() => session.steer('must not run')).toThrow(/cancelled/);
+  });
 
   it('preserves Kimi reasoning through a real tool loop without emitting it', async () => {
     const kimiModel = bundledCatalogModels().find((model) => model.id === 'kimi-k3');
