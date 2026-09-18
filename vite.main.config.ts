@@ -8,7 +8,7 @@ export default defineConfig({
   build: {
     emptyOutDir: false,
     lib: {
-      entry: 'src/main/index.ts',
+      entry: process.env.ADROUTER_E2E_BUILD === '1' ? 'src/main/e2e-main.ts' : 'src/main/index.ts',
       formats: ['cjs'],
       fileName: () => 'main.js',
     },

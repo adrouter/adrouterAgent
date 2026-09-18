@@ -5,18 +5,6 @@ import { verifyInstalledExtractZipPatch } from './extract-zip-patch.mjs';
 
 verifyInstalledExtractZipPatch();
 
-const expected = new Map([
-  [
-    'brace-expansion',
-    {
-      alias: 'adrouter-brace-expansion-patch',
-      version: '5.0.9',
-      lockKey: 'node_modules/brace-expansion',
-    },
-  ],
-  ['protobufjs', { alias: 'adrouter-protobufjs-patch', version: '7.6.5' }],
-  ['undici', { alias: 'adrouter-undici-patch', version: '8.9.0' }],
-]);
 const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
 const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
 const securityPins = new Map([
@@ -39,51 +27,19 @@ for (const [name, version] of securityPins) {
   assert.equal(physical.version, version, `${name} physical resolution must be ${version}`);
 }
 
-for (const [name, replacement] of expected) {
-  assert.equal(
-    packageJson.devDependencies[replacement.alias],
-    `npm:${name}@${replacement.version}`,
-    `${name} must have an exact private helper alias`
-  );
-  const nestedKey =
-    replacement.lockKey ?? `node_modules/@earendil-works/pi-coding-agent/node_modules/${name}`;
-  assert.equal(
-    lock.packages[nestedKey].version,
-    replacement.version,
-    `${name} lock resolution is stale`
-  );
-  const physical = JSON.parse(
-    readFileSync(
-      resolve(
-        'node_modules',
-        '@earendil-works',
-        'pi-coding-agent',
-        'node_modules',
-        name,
-        'package.json'
-      )
-    )
-  );
-  assert.equal(
-    physical.version,
-    replacement.version,
-    `${name} physical nested resolution is stale`
-  );
-}
-
 for (const name of [
   '@earendil-works/pi-agent-core',
   '@earendil-works/pi-ai',
   '@earendil-works/pi-coding-agent',
 ]) {
-  assert.equal(packageJson.dependencies[name], '0.84.1', `${name} must remain pinned`);
+  assert.equal(packageJson.dependencies[name], '0.85.1', `${name} must remain pinned`);
   assert.equal(
     lock.packages[`node_modules/${name}`].version,
-    '0.84.1',
+    '0.85.1',
     `${name} root lock resolution must remain exact`
   );
   const physical = JSON.parse(readFileSync(resolve('node_modules', name, 'package.json'), 'utf8'));
-  assert.equal(physical.version, '0.84.1', `${name} physical resolution must remain exact`);
+  assert.equal(physical.version, '0.85.1', `${name} physical resolution must remain exact`);
 }
 
 for (const name of ['@earendil-works/pi-client', '@earendil-works/pi-protocol']) {
@@ -92,26 +48,23 @@ for (const name of ['@earendil-works/pi-client', '@earendil-works/pi-protocol'])
     undefined,
     `${name} must remain transitive-only and cannot gain direct product authority`
   );
-  const nestedKey = `node_modules/@earendil-works/pi-coding-agent/node_modules/${name}`;
   assert.equal(
-    lock.packages[nestedKey].version,
-    '0.84.1',
-    `${name} transitive lock resolution must match the frozen Pi release`
+    Object.keys(lock.packages).some((key) => key.endsWith(`/node_modules/${name}`)),
+    false,
+    `${name} was removed from the supported Pi 0.85.1 distribution`
   );
+}
+
+const piNestedRoot = resolve('node_modules', '@earendil-works', 'pi-coding-agent', 'node_modules');
+for (const [name, version, relativePath] of [
+  ['brace-expansion', '5.0.9', 'brace-expansion'],
+  ['protobufjs', '7.6.5', 'protobufjs'],
+  ['undici', '8.9.0', 'undici'],
+]) {
   const physical = JSON.parse(
-    readFileSync(
-      resolve(
-        'node_modules',
-        '@earendil-works',
-        'pi-coding-agent',
-        'node_modules',
-        name,
-        'package.json'
-      ),
-      'utf8'
-    )
+    readFileSync(resolve(piNestedRoot, relativePath, 'package.json'), 'utf8')
   );
-  assert.equal(physical.version, '0.84.1', `${name} transitive physical resolution must be exact`);
+  assert.equal(physical.version, version, `${name} Pi resolution must remain ${version}`);
 }
 
 const agentSessionSource = readFileSync(resolve('src', 'runtime', 'agent-session.ts'), 'utf8');

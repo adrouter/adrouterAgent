@@ -5,6 +5,7 @@ import {
   INSTALLATION_AUTH_PROTOCOL_VERSION,
   MAX_SIGNED_REQUEST_BYTES,
   OPERATION_BROKER_PROTOCOL_VERSION,
+  WEB_REQUEST_PROTOCOL_VERSION,
 } from '../shared/constants';
 import {
   type ApprovalDecision,
@@ -25,6 +26,8 @@ import {
   type RuntimePortMessage,
   RuntimePortMessageSchema,
   type RuntimeRequest,
+  type RuntimeWebRequest,
+  RuntimeWebResultSchema,
 } from '../shared/runtime-protocol';
 import { now, safeRecord } from '../shared/security';
 import { effectiveTaskCapabilityPolicy, operationCapabilityAllowed } from '../shared/task-policy';
@@ -35,6 +38,7 @@ import type { GuidanceService } from './guidance-service';
 import type { InstallationAuthManager } from './installation-auth';
 import { OperationBroker } from './operation-broker';
 import { type RuntimeLease, RuntimeScheduler, resolveRuntimeLease } from './runtime-scheduler';
+import type { WebSearchService } from './web-search-service';
 
 const terminalStatuses = new Set<TurnStatus>(['completed', 'failed', 'cancelled', 'interrupted']);
 const MAX_AUTH_REQUESTS_PER_RUNTIME = 2;
@@ -51,6 +55,8 @@ interface ActiveRuntime {
   authMode: RuntimeRouterConfiguration['authMode'];
   authControllers: Map<string, AbortController>;
   operationControllers: Map<string, AbortController>;
+  webControllers: Map<string, AbortController>;
+  usedWebRequestIds: Set<string>;
   guidanceRequests: Set<string>;
 }
 
@@ -86,7 +92,8 @@ export class RuntimeSupervisor {
     private readonly operationBroker = new OperationBroker(),
     private readonly scheduler = new RuntimeScheduler(),
     private readonly bundleService?: BundleService,
-    private readonly guidanceService?: GuidanceService
+    private readonly guidanceService?: GuidanceService,
+    private readonly webSearchService?: WebSearchService
   ) {}
 
   public get activeThreadId(): string | undefined {
@@ -201,6 +208,8 @@ export class RuntimeSupervisor {
       authMode: router.authMode,
       authControllers: new Map(),
       operationControllers: new Map(),
+      webControllers: new Map(),
+      usedWebRequestIds: new Set(),
       guidanceRequests: new Set(),
     };
     this.active.set(input.threadId, active);
@@ -440,6 +449,16 @@ export class RuntimeSupervisor {
       active.operationControllers.delete(message.requestId);
       return;
     }
+    if (message.kind === 'web-request') {
+      await this.handleWebRequest(active, message);
+      return;
+    }
+    if (message.kind === 'web-cancel') {
+      active.webControllers.get(message.requestId)?.abort();
+      active.webControllers.delete(message.requestId);
+      this.webSearchService?.cancel(message.requestId);
+      return;
+    }
     if (message.kind === 'guidance-request') {
       await this.handleGuidanceRequest(active, message);
       return;
@@ -598,6 +617,92 @@ export class RuntimeSupervisor {
     active.child.postMessage({
       kind: 'operation-response',
       protocolVersion: OPERATION_BROKER_PROTOCOL_VERSION,
+      requestId,
+      ok: false,
+      error: error.slice(0, 1_000),
+    } satisfies RuntimePortMessage);
+  }
+
+  private async handleWebRequest(active: ActiveRuntime, request: RuntimeWebRequest): Promise<void> {
+    if (
+      !this.isCurrent(active) ||
+      active.closing ||
+      request.threadId !== active.threadId ||
+      request.turnId !== active.turnId ||
+      !this.webSearchService ||
+      active.webControllers.size >= 2 ||
+      active.usedWebRequestIds.has(request.requestId)
+    ) {
+      this.sendWebFailure(active, request.requestId, 'Web access is unavailable.');
+      return;
+    }
+    active.usedWebRequestIds.add(request.requestId);
+    const policy = this.database.getTaskPolicySnapshot(active.threadId);
+    if (!effectiveTaskCapabilityPolicy(policy.capabilityPolicy).networkFetch) {
+      this.sendWebFailure(active, request.requestId, 'This task does not permit network access.');
+      return;
+    }
+    const controller = new AbortController();
+    active.webControllers.set(request.requestId, controller);
+    try {
+      const result = RuntimeWebResultSchema.parse(
+        await this.webSearchService.execute({
+          requestId: request.requestId,
+          taskId: active.threadId,
+          action: request.action,
+          signal: controller.signal,
+          authorizeDispatch: () => {
+            if (!this.isCurrent(active) || active.closing || controller.signal.aborted) {
+              throw new Error('The web request is no longer active.');
+            }
+            const latestPolicy = this.database.getTaskPolicySnapshot(active.threadId);
+            if (!effectiveTaskCapabilityPolicy(latestPolicy.capabilityPolicy).networkFetch) {
+              throw new Error('This task no longer permits network access.');
+            }
+          },
+          onProgress: (progress) => {
+            if (!this.isCurrent(active) || active.closing || controller.signal.aborted) return;
+            active.child.postMessage({
+              kind: 'web-progress',
+              protocolVersion: WEB_REQUEST_PROTOCOL_VERSION,
+              requestId: request.requestId,
+              threadId: active.threadId,
+              turnId: active.turnId,
+              toolCallId: request.toolCallId,
+              ...progress,
+            } satisfies RuntimePortMessage);
+          },
+        })
+      );
+      if (this.isCurrent(active) && !active.closing && !controller.signal.aborted) {
+        active.child.postMessage({
+          kind: 'web-response',
+          protocolVersion: WEB_REQUEST_PROTOCOL_VERSION,
+          requestId: request.requestId,
+          ok: true,
+          result,
+        } satisfies RuntimePortMessage);
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        this.sendWebFailure(
+          active,
+          request.requestId,
+          error instanceof Error ? error.message : 'Web access failed.'
+        );
+      }
+    } finally {
+      if (active.webControllers.get(request.requestId) === controller) {
+        active.webControllers.delete(request.requestId);
+      }
+    }
+  }
+
+  private sendWebFailure(active: ActiveRuntime, requestId: string, error: string): void {
+    if (!this.isCurrent(active) || active.closing) return;
+    active.child.postMessage({
+      kind: 'web-response',
+      protocolVersion: WEB_REQUEST_PROTOCOL_VERSION,
       requestId,
       ok: false,
       error: error.slice(0, 1_000),
@@ -823,6 +928,8 @@ export class RuntimeSupervisor {
     active.authControllers.clear();
     for (const controller of active.operationControllers.values()) controller.abort();
     active.operationControllers.clear();
+    for (const controller of active.webControllers.values()) controller.abort();
+    active.webControllers.clear();
     active.child.kill();
     this.active.delete(active.threadId);
     if (active.exited) this.scheduler.release(active.turnId);

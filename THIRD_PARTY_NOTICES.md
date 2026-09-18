@@ -13,9 +13,12 @@ Direct runtime dependencies at version 0.1.0 include:
 | `@earendil-works/pi-ai` | MIT |
 | `@earendil-works/pi-coding-agent` | MIT |
 | `@monaco-editor/react` | MIT |
+| `@mozilla/readability` | Apache-2.0 |
+| `linkedom` | ISC |
 | `monaco-editor` | MIT |
 | `react` and `react-dom` | MIT |
 | `react-markdown` | MIT |
+| `turndown` | MIT |
 | `zod` | MIT |
 
 Electron's distribution includes its own `LICENSE` and

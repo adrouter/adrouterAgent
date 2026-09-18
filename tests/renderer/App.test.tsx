@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { App, formatApprovalReason } from '@/renderer/App';
+import { App, formatApprovalReason, WebSearchSettingsPanel } from '@/renderer/App';
 
 const api = {
   configuration: {
@@ -17,6 +17,13 @@ const api = {
     openEnrollment: vi.fn(),
     copyEnrollmentLink: vi.fn(),
     updatePreferences: vi.fn(),
+  },
+  search: {
+    getSettings: vi.fn(),
+    updateSettings: vi.fn(),
+    saveCredential: vi.fn(),
+    deleteCredential: vi.fn(),
+    clearCache: vi.fn(),
   },
   projects: { open: vi.fn(), list: vi.fn(), get: vi.fn(), update: vi.fn(), remove: vi.fn() },
   presets: { list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
@@ -63,6 +70,17 @@ const api = {
 };
 
 beforeEach(() => {
+  api.search.getSettings.mockResolvedValue({
+    version: 1,
+    enabled: false,
+    defaultProvider: 'auto',
+    providers: ['openai', 'exa', 'brave', 'parallel', 'tavily', 'perplexity', 'gemini'].map(
+      (provider) => ({ provider, configured: false, error: null })
+    ),
+    cacheEntries: 0,
+    cacheBytes: 0,
+  });
+  api.search.clearCache.mockResolvedValue({ ok: true });
   api.presets.list.mockResolvedValue([]);
   api.bundles.list.mockResolvedValue([]);
   api.guidance.list.mockResolvedValue([]);
@@ -139,6 +157,57 @@ describe('approval preview formatting', () => {
     expect(fallback).toContain('Legacy preview unavailable.');
     expect(fallback).toContain('Deny this request and ask the Agent to generate the edit again.');
     expect(fallback).not.toContain('{"operation"');
+  });
+});
+
+describe('web search settings', () => {
+  it('keeps keys transient while exposing provider status and cache controls', async () => {
+    const status = await api.search.getSettings();
+    api.search.updateSettings.mockImplementation(async (input) => ({ ...status, ...input }));
+    api.search.saveCredential.mockImplementation(async ({ provider }) => ({
+      ...status,
+      providers: status.providers.map(
+        (item: { provider: string; configured: boolean; error: string | null }) =>
+          item.provider === provider ? { ...item, configured: true } : item
+      ),
+    }));
+    Object.defineProperty(window, 'adrouter', { configurable: true, value: api });
+    const onError = vi.fn();
+
+    render(<WebSearchSettingsPanel onError={onError} />);
+
+    const enabled = await screen.findByRole('checkbox', { name: /Enable native web search/ });
+    await userEvent.click(enabled);
+    expect(api.search.updateSettings).toHaveBeenCalledWith({
+      enabled: true,
+      defaultProvider: 'auto',
+    });
+    const key = screen.getByLabelText('OpenAI API key');
+    await userEvent.type(key, 'secret-value');
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save' })[0] as HTMLElement);
+    expect(api.search.saveCredential).toHaveBeenCalledWith({
+      provider: 'openai',
+      apiKey: 'secret-value',
+    });
+    expect(key).toHaveValue('');
+    expect(screen.queryByText('secret-value')).not.toBeInTheDocument();
+    expect(await screen.findByText('Configured')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Clear search cache' }));
+    expect(api.search.clearCache).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it('clears a submitted API key even when secure persistence fails', async () => {
+    api.search.saveCredential.mockRejectedValue(new Error('Secure storage failed.'));
+    Object.defineProperty(window, 'adrouter', { configurable: true, value: api });
+    const onError = vi.fn();
+    render(<WebSearchSettingsPanel onError={onError} />);
+    const key = await screen.findByLabelText('OpenAI API key');
+    await userEvent.type(key, 'must-not-remain');
+    await userEvent.click(screen.getAllByRole('button', { name: 'Save' })[0] as HTMLElement);
+    await waitFor(() => expect(key).toHaveValue(''));
+    expect(onError).toHaveBeenCalledWith('Secure storage failed.');
+    expect(screen.queryByDisplayValue('must-not-remain')).not.toBeInTheDocument();
   });
 });
 

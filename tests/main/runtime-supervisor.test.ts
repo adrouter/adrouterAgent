@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppDatabase } from '@/main/database';
 import { EventSubscriptions } from '@/main/ipc';
 import { RuntimeSupervisor } from '@/main/runtime-supervisor';
+import type { WebSearchService } from '@/main/web-search-service';
 
 const directories: string[] = [];
 
@@ -17,6 +18,135 @@ afterEach(async () => {
 });
 
 describe('runtime supervision boundaries', () => {
+  it('binds native web requests to the current task and immutable network policy', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'adrouter-supervisor-web-'));
+    directories.push(directory);
+    const database = new AppDatabase(join(directory, 'agent.sqlite'));
+    const project = database.createProject({
+      path: '/tmp/project',
+      displayName: 'project',
+      instructions: '',
+      permissionMode: 'read-only',
+      git: null,
+    });
+    const thread = database.createThread({
+      projectId: project.id,
+      title: 'Task',
+      model: 'auto',
+      thinkingLevel: 'medium',
+    });
+    const turn = database.createTurn(thread.id, 'Task');
+    const execute = vi.fn().mockResolvedValue({
+      queries: [
+        {
+          query: 'current information',
+          provider: 'openai',
+          answer: '',
+          results: [],
+          error: null,
+        },
+      ],
+      content: [],
+    });
+    const service = { execute, cancel: vi.fn() } as unknown as WebSearchService;
+    const supervisor = new RuntimeSupervisor(
+      database,
+      '/tmp/runtime.js',
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      service
+    );
+    const postMessage = vi.fn();
+    const active = {
+      threadId: thread.id,
+      turnId: turn.id,
+      child: { postMessage },
+      closing: false,
+      exited: false,
+      ready: Promise.resolve(),
+      markReady: vi.fn(),
+      authMode: 'custom',
+      authControllers: new Map(),
+      operationControllers: new Map(),
+      webControllers: new Map(),
+      usedWebRequestIds: new Set(),
+      guidanceRequests: new Set(),
+    };
+    const activeMap = (supervisor as unknown as { active: Map<string, typeof active> }).active;
+    activeMap.set(thread.id, active);
+    const handleWebRequest = (
+      supervisor as unknown as {
+        handleWebRequest: (
+          current: typeof active,
+          request: Record<string, unknown>
+        ) => Promise<void>;
+      }
+    ).handleWebRequest.bind(supervisor);
+    const requestId = randomUUID();
+    await handleWebRequest(active, {
+      kind: 'web-request',
+      protocolVersion: 1,
+      requestId,
+      threadId: thread.id,
+      turnId: turn.id,
+      toolCallId: 'web-tool-1',
+      action: {
+        type: 'search',
+        queries: ['current information'],
+        resultCount: 5,
+        includeContent: false,
+      },
+    });
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ requestId, taskId: thread.id }));
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'web-response', requestId, ok: true })
+    );
+
+    await handleWebRequest(active, {
+      kind: 'web-request',
+      protocolVersion: 1,
+      requestId,
+      threadId: thread.id,
+      turnId: turn.id,
+      toolCallId: 'web-tool-duplicate',
+      action: {
+        type: 'search',
+        queries: ['duplicate'],
+        resultCount: 5,
+        includeContent: false,
+      },
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'web-response', requestId, ok: false })
+    );
+
+    const staleId = randomUUID();
+    await handleWebRequest(active, {
+      kind: 'web-request',
+      protocolVersion: 1,
+      requestId: staleId,
+      threadId: thread.id,
+      turnId: randomUUID(),
+      toolCallId: 'web-tool-2',
+      action: {
+        type: 'search',
+        queries: ['stale'],
+        resultCount: 5,
+        includeContent: false,
+      },
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'web-response', requestId: staleId, ok: false })
+    );
+    database.close();
+  });
+
   it('rejects a stale approval before mutating its persisted decision', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'adrouter-supervisor-'));
     directories.push(directory);

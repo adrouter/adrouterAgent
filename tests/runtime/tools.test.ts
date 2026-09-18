@@ -108,6 +108,55 @@ describe('desktop tool approvals', () => {
     ]);
   });
 
+  it('exposes native web tools only through the task policy and separate broker', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'adrouter-web-tools-'));
+    directories.push(workspace);
+    const executeWeb = vi.fn().mockResolvedValue({ queries: [] });
+    const tools = createDesktopTools({
+      workspaceRoot: workspace,
+      permissionMode: 'read-only',
+      threadId: '11111111-1111-4111-8111-111111111111',
+      turnId: '22222222-2222-4222-8222-222222222222',
+      commandRunner: {} as SandboxedCommandRunner,
+      commandsEnabled: false,
+      capabilityPolicy: {
+        schemaVersion: 1,
+        workspaceAccess: 'read-only',
+        fileMutations: false,
+        generalCommands: false,
+        networkFetch: true,
+        dependencyChanges: false,
+        gitWrites: false,
+        delegation: false,
+      },
+      executeWeb,
+      requestApproval: vi.fn(),
+      emit: vi.fn(),
+    });
+    expect(tools.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining(['fetch_url', 'web_search', 'fetch_content', 'get_search_content'])
+    );
+    await tools
+      .find((tool) => tool.name === 'web_search')
+      ?.execute('search', {
+        query: ['one', 'two'],
+        provider: 'brave',
+        resultCount: 3,
+        includeContent: false,
+      });
+    expect(executeWeb).toHaveBeenCalledWith(
+      {
+        type: 'search',
+        queries: ['one', 'two'],
+        provider: 'brave',
+        resultCount: 3,
+        includeContent: false,
+      },
+      undefined,
+      'search'
+    );
+  });
+
   it('exposes only bounded, approval-bound delegation lifecycle tools', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'adrouter-delegation-tools-'));
     directories.push(workspace);

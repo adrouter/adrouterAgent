@@ -373,11 +373,18 @@ The desktop exposes a fixed, intentionally small tool surface:
 | `load_guidance` | None | One indexed project skill, revalidated against its trusted exact path/digest on every load. |
 | `apply_patch`, copy/move/delete/restore | Every call | Exact expected-state binding and atomic workspace-contained mutation. |
 | `fetch_url` | Every call | Bounded reviewed network request subject to the fixed network policy. |
+| `web_search`, `fetch_content`, `get_search_content` | None when enabled for a task | Optional native provider search and readable-content retrieval. Requires the task's immutable `networkFetch` capability; credentials stay in Main and content handles are task-owned. |
 | dependency/script tools | Every mutation/run | Temporary preview or exact script binding; lifecycle work remains separately reviewed. |
 | structured Git tools | Every call | Agent-side Git writes use exact bindings; GUI Git writes require their own second-click decision. |
 | `run_command` | Every general command | Exact argv, selected workspace as cwd, bounded timeout, and task-policy-selected read/write sandbox. |
 | `delegate_task` | Every call | At most three visible depth-one children; children inherit policy with delegation disabled. |
 | delegated child status/message/cancel | Every call | Direct ownership only; messages queue or resume through normal tasks, and cancellation uses normal stop. |
+
+Web search is off by default. Configure provider credentials in **Settings**; the UI exposes only
+configured/error state and replacement or deletion controls. Automatic provider selection follows
+the displayed fixed order and does not fall back after a provider request starts. Full extracted
+pages are stored only in the encrypted one-hour content cache, which can be cleared from Settings.
+This path is separate from `fetch_url`, whose one-time approval behavior is unchanged.
 
 The task snapshot's workspace ceiling can be `workspace-write` or `read-only`. Newly opened projects
 default to writable for future tasks, but a preset can reduce it. In read-only mode all file,

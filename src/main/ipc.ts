@@ -28,8 +28,10 @@ import type { ReviewService } from './review-service';
 import type { RuntimeSupervisor } from './runtime-supervisor';
 import type { SessionService } from './session-service';
 import type { TaskService } from './task-service';
+import type { WebSearchService } from './web-search-service';
+import type { WebSearchStore } from './web-search-store';
 
-const PUBLIC_RELEASE_VERSION = '0.1.0-beta.24';
+const PUBLIC_RELEASE_VERSION = '0.1.0-beta.25';
 
 interface Subscription {
   id: string;
@@ -113,6 +115,8 @@ export interface IpcDependencies {
   automation: LocalRpcServer;
   sessions: SessionService;
   gitWorkflows: GitWorkflowService;
+  webSearch: WebSearchService;
+  webSearchStore: WebSearchStore;
 }
 
 export const registerIpcHandlers = (dependencies: IpcDependencies): EventSubscriptions => {
@@ -130,6 +134,8 @@ export const registerIpcHandlers = (dependencies: IpcDependencies): EventSubscri
     supervisor,
     tasks,
     presets,
+    webSearch,
+    webSearchStore,
   } = dependencies;
   const subscriptions = new EventSubscriptions();
 
@@ -180,6 +186,25 @@ export const registerIpcHandlers = (dependencies: IpcDependencies): EventSubscri
   register('configuration.updatePreferences', (raw) =>
     configuration.updatePreferences(IpcSchemas['configuration.updatePreferences'].input.parse(raw))
   );
+  register('search.getSettings', () => webSearchStore.getSettings());
+  register('search.updateSettings', async (raw) => {
+    const input = IpcSchemas['search.updateSettings'].input.parse(raw);
+    if (!input.enabled) webSearch.cancelAll();
+    return webSearchStore.updateSettings(input);
+  });
+  register('search.saveCredential', (raw) => {
+    const input = IpcSchemas['search.saveCredential'].input.parse(raw);
+    return webSearchStore.saveCredential(input.provider, input.apiKey);
+  });
+  register('search.deleteCredential', (raw) => {
+    const input = IpcSchemas['search.deleteCredential'].input.parse(raw);
+    webSearch.cancelAll();
+    return webSearchStore.deleteCredential(input.provider);
+  });
+  register('search.clearCache', async () => {
+    await webSearchStore.clearCache();
+    return { ok: true } as const;
+  });
 
   register('projects.open', async (raw) => {
     const input = IpcSchemas['projects.open'].input.parse(raw);

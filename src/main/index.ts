@@ -19,6 +19,8 @@ import { SessionService } from './session-service';
 import { SignedUpdateService } from './signed-update-service';
 import { TaskService } from './task-service';
 import { writeLauncherHealthMarker } from './update-health';
+import { WebSearchService } from './web-search-service';
+import { WebSearchStore } from './web-search-store';
 
 app.setName('AdRouter Agent');
 
@@ -93,6 +95,12 @@ const initializeApplication = async (): Promise<void> => {
 
   const userData = app.getPath('userData');
   const configuration = new ConfigurationStore(join(userData, 'configuration.json'));
+  const webSearchStore = new WebSearchStore(
+    join(userData, 'web-search-settings.json'),
+    join(userData, 'web-search-cache.json')
+  );
+  await webSearchStore.initialize();
+  const webSearch = new WebSearchService(webSearchStore);
   installationAuth = new InstallationAuthManager(configuration, app.getVersion());
   if (process.argv.includes('--installation-auth-smoke')) {
     const diagnostics = await installationAuth.diagnostics();
@@ -130,7 +138,8 @@ const initializeApplication = async (): Promise<void> => {
     undefined,
     undefined,
     bundles,
-    guidance
+    guidance,
+    webSearch
   );
   const tasks = new TaskService(database, configuration, supervisor, (event) =>
     subscriptions?.publish(event)
@@ -170,6 +179,8 @@ const initializeApplication = async (): Promise<void> => {
     automation: localRpc,
     sessions,
     gitWorkflows,
+    webSearch,
+    webSearchStore,
   });
 
   createMainWindow(() => writeLauncherHealthMarker(app.getVersion()).then(() => undefined));

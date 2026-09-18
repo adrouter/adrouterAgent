@@ -191,4 +191,68 @@ describe('turn timeline projection', () => {
       ],
     });
   });
+
+  it('projects bounded web progress, partial errors, excerpts, and HTTPS citations', () => {
+    const timeline = buildTimeline([
+      event(1, 'tool.activity', {
+        name: 'web_search',
+        state: 'started',
+        toolCallId: 'web-1',
+        args: { query: ['good', 'bad'] },
+      }),
+      event(2, 'tool.activity', {
+        recordKind: 'web-progress',
+        state: 'progress',
+        toolCallId: 'web-1',
+        phase: 'dispatching',
+        provider: 'brave',
+        query: 'good',
+        completed: 0,
+        total: 2,
+      }),
+      event(3, 'tool.result', {
+        name: 'web_search',
+        toolCallId: 'web-1',
+        isError: false,
+        details: {
+          queries: [
+            {
+              query: 'good',
+              provider: 'brave',
+              answer: 'A bounded answer.',
+              results: [
+                {
+                  title: 'Safe source',
+                  url: 'https://example.com/',
+                  snippet: 'A bounded excerpt.',
+                },
+              ],
+              error: null,
+            },
+            {
+              query: 'bad',
+              provider: 'brave',
+              answer: '',
+              results: [],
+              error: 'rate limit reached',
+            },
+          ],
+          content: [],
+        },
+      }),
+    ]);
+    expect(timeline).toEqual([
+      expect.objectContaining({
+        kind: 'tool',
+        status: 'completed',
+        web: expect.objectContaining({
+          provider: 'brave',
+          progress: 'completed',
+          excerpts: expect.arrayContaining(['A bounded answer.', 'A bounded excerpt.']),
+          citations: [{ title: 'Safe source', url: 'https://example.com/' }],
+          errors: ['bad: rate limit reached'],
+        }),
+      }),
+    ]);
+  });
 });

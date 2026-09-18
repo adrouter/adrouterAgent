@@ -5,6 +5,8 @@ import {
   createCompactionSummaryMessage,
   estimateTokens,
   generateSummary,
+  TODO_CONTEXT,
+  withAbortSignal,
 } from '@earendil-works/pi-agent-core';
 import {
   type Api,
@@ -26,7 +28,11 @@ import {
   SettingsManager,
 } from '@earendil-works/pi-coding-agent';
 import type { ApprovalDecision, OperationManifestV1, Sponsor } from '../shared/contracts';
-import type { RuntimeEvent, RuntimeStartSchema } from '../shared/runtime-protocol';
+import type {
+  RuntimeEvent,
+  RuntimeStartSchema,
+  RuntimeWebAction,
+} from '../shared/runtime-protocol';
 import { containsSponsorKey, now, removeSponsorData, safeRecord } from '../shared/security';
 import { type OptimizedPrompt, optimizeDesktopPrompt } from './cache-optimizer';
 import { SandboxedCommandRunner } from './command-runner';
@@ -116,6 +122,13 @@ export const normalizeAssistantContent = (value: unknown): AssistantMessage['con
     return [];
   });
 };
+
+export const desktopPiSessionSettings = () => ({
+  steeringMode: 'one-at-a-time' as const,
+  followUpMode: 'one-at-a-time' as const,
+  compaction: { enabled: false },
+  retry: { enabled: false },
+});
 
 const serializeContextMessage = (message: AgentMessage): Record<string, unknown> | undefined => {
   if (containsSponsorKey(message)) return undefined;
@@ -601,10 +614,12 @@ const updateSummary = async (
       options.models,
       options.providerModel,
       CONTEXT_RESERVE_TOKENS,
-      options.signal,
       'Preserve user constraints, exact paths, completed edits, unresolved failures, and approval outcomes. Omit hidden reasoning and any display-only accounting data.',
       summary,
-      'off'
+      'off',
+      undefined,
+      undefined,
+      options.signal ? withAbortSignal(options.signal, TODO_CONTEXT) : TODO_CONTEXT
     );
     if (!result.ok || !result.value.trim()) {
       const error = result.ok ? 'Checkpoint summarization returned no text.' : result.error.message;
@@ -743,6 +758,9 @@ export const compactMessages = async (
 
 export class DesktopAgentSession {
   private session?: AgentSession;
+  private unsubscribeSession?: () => void;
+  private commandRunner?: SandboxedCommandRunner;
+  private teardownPromise?: Promise<void>;
   private readonly presenceAbort = new AbortController();
   private readonly presence = new PresenceGate((prompt) =>
     this.emit({
@@ -780,21 +798,49 @@ export class DesktopAgentSession {
       manifest: OperationManifestV1,
       signal?: AbortSignal
     ) => Promise<Record<string, unknown>>,
-    private readonly loadGuidance?: (id: string, digest: string) => Promise<string>
+    private readonly loadGuidance?: (id: string, digest: string) => Promise<string>,
+    private readonly executeWeb?: (
+      action: RuntimeWebAction,
+      signal: AbortSignal | undefined,
+      toolCallId: string
+    ) => Promise<Record<string, unknown>>
   ) {
     this.compactionAnchors = historyAnchors(start.history);
   }
 
   public async run(): Promise<void> {
     this.presence.start(this.start.turnId);
+    let status: 'completed' | 'failed' | 'cancelled' = 'failed';
+    let error: string | null = null;
     try {
-      await this.runTask();
+      const result = await this.runTask();
+      status = result.status;
+      error = result.error;
+    } catch (caught) {
+      status = this.stopped ? 'cancelled' : 'failed';
+      error = this.stopped ? null : caught instanceof Error ? caught.message : String(caught);
     } finally {
-      this.presence.stop();
+      await this.teardown();
+      this.emit({
+        type: 'turn.lifecycle',
+        turnId: this.start.turnId,
+        timestamp: now(),
+        payload: { status, error },
+      });
     }
   }
 
-  private async runTask(): Promise<void> {
+  private assertRunning(): void {
+    if (this.stopped || this.presenceAbort.signal.aborted) {
+      throw new Error('The agent run was cancelled.');
+    }
+  }
+
+  private async runTask(): Promise<{
+    status: 'completed' | 'failed' | 'cancelled';
+    error: string | null;
+  }> {
+    this.assertRunning();
     const router = new AdRouterClient({
       serverUrl: this.start.router.serverUrl,
       authentication:
@@ -820,6 +866,7 @@ export class DesktopAgentSession {
       projectDisplayName: this.start.project.displayName,
       adsEnabled: this.start.sponsoredCompute,
       onSponsor: (sponsor) => {
+        if (this.stopped) return;
         this.currentSponsor = sponsor as Sponsor;
         this.emit({
           type: 'sponsor.update',
@@ -829,6 +876,7 @@ export class DesktopAgentSession {
         });
       },
       onSettlement: (settlement) => {
+        if (this.stopped) return;
         this.emit({
           type: 'settlement',
           turnId: this.start.turnId,
@@ -837,6 +885,7 @@ export class DesktopAgentSession {
         });
       },
       onContextOverflow: (estimate) => {
+        if (this.stopped) return;
         this.emit({
           type: 'compaction',
           turnId: this.start.turnId,
@@ -854,6 +903,7 @@ export class DesktopAgentSession {
       compactForInputLimit: (context, signal) =>
         compactForInputLimit ? compactForInputLimit(context, signal) : Promise.resolve(null),
       onSafeRetry: () => {
+        if (this.stopped) return;
         this.emit({
           type: 'retry',
           turnId: this.start.turnId,
@@ -869,6 +919,7 @@ export class DesktopAgentSession {
     });
 
     const commandRunner = new SandboxedCommandRunner();
+    this.commandRunner = commandRunner;
     const sandbox = sandboxReadiness();
     const tools = createDesktopTools({
       workspaceRoot: this.start.project.path,
@@ -882,6 +933,13 @@ export class DesktopAgentSession {
       delegationEnabled: this.start.project.delegationEnabled,
       trustedSkills: this.start.project.trustedSkills,
       loadGuidance: this.loadGuidance,
+      executeWeb: this.executeWeb
+        ? async (action, signal, toolCallId) => {
+            await this.presence.boundary(signal ?? this.presenceAbort.signal);
+            if (!this.executeWeb) throw new Error('Web broker unavailable.');
+            return this.executeWeb(action, signal, toolCallId);
+          }
+        : undefined,
       executeOperation: this.executeOperation
         ? async (manifest, signal) => {
             await this.presence.boundary(signal ?? this.presenceAbort.signal);
@@ -890,13 +948,18 @@ export class DesktopAgentSession {
           }
         : undefined,
       requestApproval: (approval, signal) => this.requestApproval(approval, signal),
-      emit: (type, payload) =>
-        this.emit({ type, turnId: this.start.turnId, timestamp: now(), payload }),
+      emit: (type, payload) => {
+        if (!this.stopped) {
+          this.emit({ type, turnId: this.start.turnId, timestamp: now(), payload });
+        }
+      },
     });
     for (const tool of tools) {
       const execute = tool.execute.bind(tool);
       tool.execute = async (...args) => {
+        this.assertRunning();
         await this.presence.boundary(this.presenceAbort.signal);
+        this.assertRunning();
         return execute(...args);
       };
     }
@@ -972,11 +1035,9 @@ export class DesktopAgentSession {
       allowModelNetwork: false,
       refreshOnCreate: false,
     });
+    this.assertRunning();
     modelRuntime.registerNativeProvider(provider.provider);
-    const settingsManager = SettingsManager.inMemory({
-      steeringMode: 'one-at-a-time',
-      followUpMode: 'one-at-a-time',
-    });
+    const settingsManager = SettingsManager.inMemory(desktopPiSessionSettings());
     const resourceLoader = new DefaultResourceLoader({
       cwd: this.start.project.path,
       agentDir: this.start.project.path,
@@ -998,7 +1059,11 @@ export class DesktopAgentSession {
       baseToolsOverride: Object.fromEntries(tools.map((tool) => [tool.name, tool])),
       allowedToolNames: tools.map((tool) => tool.name),
     });
-    this.session.subscribe((event) => this.forwardAgentEvent(event as AgentEvent));
+    this.unsubscribeSession = this.session.subscribe((event) =>
+      this.forwardAgentEvent(event as AgentEvent)
+    );
+
+    this.assertRunning();
 
     this.emit({
       type: 'turn.lifecycle',
@@ -1006,37 +1071,19 @@ export class DesktopAgentSession {
       timestamp: now(),
       payload: { status: 'running' },
     });
-    try {
-      await this.session.prompt(this.start.input, { expandPromptTemplates: false });
-      const status =
-        this.stopped || this.session.state.errorMessage
-          ? this.stopped
-            ? 'cancelled'
-            : 'failed'
-          : 'completed';
-      this.emit({
-        type: 'turn.lifecycle',
-        turnId: this.start.turnId,
-        timestamp: now(),
-        payload: { status, error: this.session.state.errorMessage ?? null },
-      });
-    } catch (error) {
-      this.emit({
-        type: 'turn.lifecycle',
-        turnId: this.start.turnId,
-        timestamp: now(),
-        payload: {
-          status: this.stopped ? 'cancelled' : 'failed',
-          error: error instanceof Error ? error.message : String(error),
-        },
-      });
-    } finally {
-      this.presence.stop();
-      await commandRunner.reset().catch(() => undefined);
-    }
+    await this.session.prompt(this.start.input, { expandPromptTemplates: false });
+    const status =
+      this.stopped || this.session.state.errorMessage
+        ? this.stopped
+          ? 'cancelled'
+          : 'failed'
+        : 'completed';
+    return { status, error: this.stopped ? null : (this.session.state.errorMessage ?? null) };
   }
 
   public steer(input: string): void {
+    this.assertRunning();
+    if (!this.session) throw new Error('The agent session is not ready.');
     this.assertInteraction();
     this.emit({
       type: 'message.user',
@@ -1044,10 +1091,12 @@ export class DesktopAgentSession {
       timestamp: now(),
       payload: { role: 'user', text: input, mode: 'steer' },
     });
-    void this.session?.steer(input);
+    void this.session.steer(input);
   }
 
   public queueFollowUp(input: string): void {
+    this.assertRunning();
+    if (!this.session) throw new Error('The agent session is not ready.');
     this.assertInteraction();
     this.emit({
       type: 'message.user',
@@ -1055,7 +1104,7 @@ export class DesktopAgentSession {
       timestamp: now(),
       payload: { role: 'user', text: input, mode: 'follow-up' },
     });
-    void this.session?.followUp(input);
+    void this.session.followUp(input);
     this.queuedFollowUps += 1;
     this.emit({
       type: 'queue.update',
@@ -1066,6 +1115,7 @@ export class DesktopAgentSession {
   }
 
   public clearQueue(): void {
+    this.assertRunning();
     this.assertInteraction();
     this.session?.clearQueue();
     this.queuedFollowUps = 0;
@@ -1078,6 +1128,7 @@ export class DesktopAgentSession {
   }
 
   public stop(): void {
+    if (this.stopped) return;
     this.stopped = true;
     this.presenceAbort.abort();
     this.presence.stop();
@@ -1088,6 +1139,28 @@ export class DesktopAgentSession {
       pending.resolve('deny');
     }
     this.pendingApprovals.clear();
+  }
+
+  private teardown(): Promise<void> {
+    this.teardownPromise ??= (async () => {
+      this.stopped = true;
+      this.presenceAbort.abort();
+      this.presence.stop();
+      this.session?.clearQueue();
+      await this.session?.abort().catch(() => undefined);
+      for (const [, pending] of this.pendingApprovals) {
+        pending.cleanup();
+        pending.resolve('deny');
+      }
+      this.pendingApprovals.clear();
+      this.unsubscribeSession?.();
+      this.unsubscribeSession = undefined;
+      this.session?.dispose();
+      this.session = undefined;
+      await this.commandRunner?.reset().catch(() => undefined);
+      this.commandRunner = undefined;
+    })();
+    return this.teardownPromise;
   }
 
   public resolveApproval(approvalId: string, decision: ApprovalDecision): boolean {
@@ -1114,6 +1187,7 @@ export class DesktopAgentSession {
       return 'deny';
     }
     await this.presence.boundary(signal ?? this.presenceAbort.signal);
+    if (this.stopped || signal?.aborted) return 'deny';
     this.presence.pause();
     this.emit({
       type: 'approval.request',
@@ -1150,6 +1224,7 @@ export class DesktopAgentSession {
   }
 
   private forwardAgentEvent(event: AgentEvent): void {
+    if (this.stopped) return;
     if (
       event.type === 'message_start' &&
       event.message.role === 'user' &&

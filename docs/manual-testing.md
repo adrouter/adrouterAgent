@@ -170,6 +170,18 @@ Then verify hard policy boundaries with disposable requests:
 These operations must remain blocked without presenting approval as a policy
 bypass. If the OS sandbox cannot initialize, all commands must fail closed.
 
+### Native web search
+
+In **Settings**, confirm web search starts disabled and no credential value is ever shown after it
+is saved. Exercise each configured provider with a disposable key and confirm explicit missing
+providers fail without fallback. Stop a request in flight, disable search, delete a credential, and
+clear the content cache; each action must cancel or invalidate the corresponding work. Confirm
+`web_search` and readable-content tools require the task's `networkFetch` policy, while `fetch_url`
+still presents its independent **Allow once** card. Test public HTTPS pages, redirects, private and
+loopback DNS destinations, oversized responses, compressed responses, hostile HTML, expired
+handles, and cross-task handles. Only bounded excerpts and opaque handles should appear in tool
+history; provider keys and full cached pages must not.
+
 Verify that a read-only project can still be inspected but cannot accept file
 mutations. If the project is in `workspace-write` mode, confirm the exact same
 mutation requires a new approval each time; there is no persistent allowlist.

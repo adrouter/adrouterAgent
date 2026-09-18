@@ -1001,6 +1001,54 @@ export const RouterConfigurationSchema = z.object({
   authentication: InstallationDiagnosticsSchema,
 });
 export type RouterConfiguration = z.infer<typeof RouterConfigurationSchema>;
+
+export const SearchProviderSchema = z.enum([
+  'openai',
+  'exa',
+  'brave',
+  'parallel',
+  'tavily',
+  'perplexity',
+  'gemini',
+]);
+export type SearchProvider = z.infer<typeof SearchProviderSchema>;
+export const SearchProviderSelectionSchema = z.union([z.literal('auto'), SearchProviderSchema]);
+export type SearchProviderSelection = z.infer<typeof SearchProviderSelectionSchema>;
+export const SearchProviderStatusSchema = z
+  .object({
+    provider: SearchProviderSchema,
+    configured: z.boolean(),
+    error: z.string().max(500).nullable(),
+  })
+  .strict();
+export const WebSearchSettingsSchema = z
+  .object({
+    version: z.literal(1),
+    enabled: z.boolean(),
+    defaultProvider: SearchProviderSelectionSchema,
+    providers: z.array(SearchProviderStatusSchema).length(7),
+    cacheEntries: z.number().int().nonnegative().max(128),
+    cacheBytes: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(128 * 1024 * 1024),
+  })
+  .strict();
+export type WebSearchSettings = z.infer<typeof WebSearchSettingsSchema>;
+export const WebSearchSettingsInputSchema = z
+  .object({
+    enabled: z.boolean(),
+    defaultProvider: SearchProviderSelectionSchema,
+  })
+  .strict();
+export const WebSearchCredentialInputSchema = z
+  .object({
+    provider: SearchProviderSchema,
+    apiKey: z.string().trim().min(1).max(16_384),
+  })
+  .strict();
+export const WebSearchProviderInputSchema = z.object({ provider: SearchProviderSchema }).strict();
 export const SignOutResultSchema = z.object({
   configuration: RouterConfigurationSchema,
   remoteRevocationConfirmed: z.boolean(),
@@ -1255,6 +1303,20 @@ export const IpcSchemas = {
     input: RouterPreferencesInputSchema,
     output: RouterConfigurationSchema,
   },
+  'search.getSettings': { input: z.object({}), output: WebSearchSettingsSchema },
+  'search.updateSettings': {
+    input: WebSearchSettingsInputSchema,
+    output: WebSearchSettingsSchema,
+  },
+  'search.saveCredential': {
+    input: WebSearchCredentialInputSchema,
+    output: WebSearchSettingsSchema,
+  },
+  'search.deleteCredential': {
+    input: WebSearchProviderInputSchema,
+    output: WebSearchSettingsSchema,
+  },
+  'search.clearCache': { input: z.object({}), output: OkSchema },
   'projects.open': { input: ProjectOpenInputSchema, output: ProjectSchema },
   'projects.list': { input: z.object({}), output: z.array(ProjectSchema) },
   'projects.get': { input: ProjectIdInputSchema, output: ProjectSchema },
@@ -1353,6 +1415,17 @@ export interface AdrouterApi {
     updatePreferences(
       input: z.input<typeof RouterPreferencesInputSchema>
     ): Promise<RouterConfiguration>;
+  };
+  search: {
+    getSettings(): Promise<WebSearchSettings>;
+    updateSettings(input: z.input<typeof WebSearchSettingsInputSchema>): Promise<WebSearchSettings>;
+    saveCredential(
+      input: z.input<typeof WebSearchCredentialInputSchema>
+    ): Promise<WebSearchSettings>;
+    deleteCredential(
+      input: z.input<typeof WebSearchProviderInputSchema>
+    ): Promise<WebSearchSettings>;
+    clearCache(): Promise<{ ok: true }>;
   };
   projects: {
     open(input?: z.input<typeof ProjectOpenInputSchema>): Promise<Project>;

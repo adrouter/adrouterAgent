@@ -73,6 +73,10 @@ import {
   TurnSchema,
   TurnStartInputSchema,
   TurnStopInputSchema,
+  WebSearchCredentialInputSchema,
+  WebSearchProviderInputSchema,
+  WebSearchSettingsInputSchema,
+  WebSearchSettingsSchema,
 } from '../shared/contracts';
 
 const invoke = async (method: IpcMethod, rawInput: unknown): Promise<unknown> => {
@@ -128,6 +132,23 @@ const api: AdrouterApi = {
       RouterConfigurationSchema.parse(
         await invoke('configuration.updatePreferences', RouterPreferencesInputSchema.parse(input))
       ),
+  },
+  search: {
+    getSettings: async () => WebSearchSettingsSchema.parse(await invoke('search.getSettings', {})),
+    updateSettings: async (input) =>
+      WebSearchSettingsSchema.parse(
+        await invoke('search.updateSettings', WebSearchSettingsInputSchema.parse(input))
+      ),
+    saveCredential: async (input) =>
+      WebSearchSettingsSchema.parse(
+        await invoke('search.saveCredential', WebSearchCredentialInputSchema.parse(input))
+      ),
+    deleteCredential: async (input) =>
+      WebSearchSettingsSchema.parse(
+        await invoke('search.deleteCredential', WebSearchProviderInputSchema.parse(input))
+      ),
+    clearCache: async () =>
+      IpcSchemas['search.clearCache'].output.parse(await invoke('search.clearCache', {})),
   },
   projects: {
     open: async (input = {}) =>
